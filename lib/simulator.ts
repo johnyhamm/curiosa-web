@@ -14,6 +14,7 @@ export interface SimCard {
   elements: string[];
   keywords: string[];
   rulesText: string;
+  subtypes: string[];           // e.g. ["knight"], ["dragon"], ["undead"]
   // Pre-parsed effects (set by toSimCards; undefined for non-spell/artifact/aura cards)
   spellEffect?:     SpellEffect;
   artifactEffect?:  ArtifactEffect;
@@ -186,6 +187,12 @@ export type AvatarAbility =
   | { kind: "on_spell_cast"; grant: "draw" | "mana" | "damage_enemy"; amount: number }
   /** The avatar itself carries a keyword (Stealth, Charge, etc.). */
   | { kind: "avatar_keyword"; keyword: string }
+  /** Once per turn, banish a dead minion from the cemetery to re-summon it (e.g. Deathspeaker). */
+  | { kind: "cemetery_summon"; freeCostOnDeathsDoor: boolean }
+  /** When N dead magic spells are in the cemetery, banish them and cast a copy of one (e.g. Archimago). */
+  | { kind: "cemetery_cast_spell"; banishCount: number }
+  /** Once per turn, banish all dead fire minions and deal their total (F) threshold as damage (e.g. Flamecaller). */
+  | { kind: "cemetery_fire_damage" }
   /** Permanent bonus to the player's mana threshold in all elements (e.g. Elementalist). */
   | { kind: "threshold_bonus"; water: number; earth: number; fire: number; air: number }
   /** Reduce all incoming damage to this avatar's life total by a fixed amount (e.g. Ironclad). */
@@ -197,7 +204,49 @@ export type AvatarAbility =
   /** Once per turn, spend manaCost to summon a token minion on a free friendly site. */
   | { kind: "summon_token"; attack: number; defense: number; manaCost: number }
   /** Enemy minions entering a friendly site take this much direct damage (e.g. Druid). */
-  | { kind: "on_enemy_enter_site_damage"; amount: number };
+  | { kind: "on_enemy_enter_site_damage"; amount: number }
+  /** Avatar moves and attacks each turn using its tap action (if not used for site placement). */
+  | { kind: "avatar_combat" }
+  /** After the avatar's first attack this turn it may take one extra step and attack again (Bladedancer). */
+  | { kind: "avatar_extra_step_after_attack" }
+  /** When the avatar successfully attacks an enemy site it destroys that site, then becomes
+   *  immobile (digesting) for one full turn before it can act again (Realm-Eater). */
+  | { kind: "avatar_destroy_site_on_attack" }
+  /** When the avatar places a site its position immediately jumps to that site's square (Pathfinder). */
+  | { kind: "avatar_move_on_site_place" }
+  /** Avatar gains +1 ATK for every Earth site it occupies or is adjacent to (Avatar of Earth). */
+  | { kind: "dynamic_atk_per_adjacent_earth_site" }
+  // ── System 3: Setup variants ─────────────────────────────────────────────
+  /** Override starting hand size (e.g. Duplicator: 2 spells + 2 sites). */
+  | { kind: "setup_hand"; spells: number; sites: number }
+  /** Merge atlas into spell deck; start with a larger hand of mixed cards (Magician). */
+  | { kind: "setup_unified_deck"; handSize: number }
+  /** On init, pick N random squares; minions may deploy there for -1 mana (Harbinger). */
+  | { kind: "fixed_deployment_squares"; count: number }
+  // ── System 4: Subtype discount ───────────────────────────────────────────
+  /** First minion with the given subtype each turn costs 1 less mana (Templar). */
+  | { kind: "first_subtype_discount"; subtypes: string[] }
+  // ── System 5: Terrain / flooding ─────────────────────────────────────────
+  /** Once per turn, flood the nearest enemy site; non-submerge minions there
+   *  are tapped and skip their next untap (Waveshaper, Avatar of Water). */
+  | { kind: "flood_adjacent_enemy_site" }
+  // ── Standalone abilities ─────────────────────────────────────────────────
+  /** At the start of your turn, scry 1: bottom the top card of a deck if it
+   *  won't be playable next turn (Seer). */
+  | { kind: "start_of_turn_scry" }
+  /** After placing an earth site, mark an adjacent void square as Rubble (Geomancer). */
+  | { kind: "geomancer_rubble" }
+  /** After playing a minion this turn, spend 1 mana to give it Ward (Savior). */
+  | { kind: "on_minion_played_ward" }
+  /** When casting a Magic spell with no enemy targets, cast it as a Spirit
+   *  minion with ATK = DEF = mana cost instead (Animist). */
+  | { kind: "cast_magic_as_spirit" }
+  /** When casting any spell, animate the cheapest Aura in hand as a minion
+   *  with ATK = DEF = cost until end of turn (Enchantress). */
+  | { kind: "animate_aura_on_spell_cast" }
+  /** After playing cards this turn, deal damage equal to the total Air threshold
+   *  of spells cast to the weakest enemy (Sparkmage). */
+  | { kind: "turn_end_air_damage" };
 
 /**
  * Returns the simulator-relevant abilities for a known avatar by name.
@@ -254,10 +303,113 @@ export function lookupAvatarAbilities(name: string): AvatarAbility[] {
       return [{ kind: "on_site_attack_draw", amount: 1 }];
 
     // "Whenever Battlemage attacks and kills an enemy, you may draw a spell."
-    // Approximated as: draw 1 card on a successful site attack (closest proxy for
-    // the avatar's aggressive kill-and-draw playstyle).
+    // 3/3 stats — models as a genuine combat avatar that draws on site attacks.
     case "Battlemage":
-      return [{ kind: "on_site_attack_draw", amount: 1 }];
+      return [{ kind: "avatar_combat" }, { kind: "on_site_attack_draw", amount: 1 }];
+
+    // "After her first attack each turn, Bladedancer may take a step. When she does,
+    //  she may attack a unit there."
+    case "Bladedancer":
+      return [{ kind: "avatar_combat" }, { kind: "avatar_extra_step_after_attack" }];
+
+    // "Destroys sites it successfully attacks, then becomes immobile until it digests."
+    case "Realm-Eater":
+      return [{ kind: "avatar_combat" }, { kind: "avatar_destroy_site_on_attack" }];
+
+    // "Once on your turn, Persecutor may step toward the closest Evil…"
+    // Modelled as a standard combat avatar (2/2 stats, aggressive forward movement).
+    case "Persecutor":
+      return [{ kind: "avatar_combat" }];
+
+    // "Tap → If able, play the topmost site of your atlas to an adjacent location
+    //  and move there." Avatar teleports to each placed site.
+    case "Pathfinder":
+      return [{ kind: "avatar_move_on_site_place" }];
+
+    // "You have +1 power for each nearby earth site."
+    // Avatar's ATK scales with how many adjacent earth sites it occupies.
+    case "Avatar of Earth":
+      return [{ kind: "dynamic_atk_per_adjacent_earth_site" }];
+
+    // ── System 3: Setup variants ─────────────────────────────────────────────
+
+    // "Start with only two spells and two sites in hand."
+    case "Duplicator":
+      return [{ kind: "setup_hand", spells: 2, sites: 2 }];
+
+    // "No atlas; spellbook may contain sites; start with seven cards."
+    case "Magician":
+      return [{ kind: "setup_unified_deck", handSize: 7 }];
+
+    // "On setup, determine three random squares. Minions cast to one of them cost (1) less."
+    case "Harbinger":
+      return [{ kind: "fixed_deployment_squares", count: 3 }];
+
+    // ── System 4: Subtype discount ────────────────────────────────────────
+
+    // "The first Knight, Sir, or Dame you cast each turn costs (1) less."
+    case "Templar":
+      return [{ kind: "first_subtype_discount", subtypes: ["knight", "sir", "dame"] }];
+
+    // ── System 5: Terrain / flooding ──────────────────────────────────────
+
+    // "Tap → Flood a site near your body of water until you do so again.
+    //  Tap minions without submerge there. They don't untap the next time they would."
+    case "Waveshaper":
+      return [{ kind: "flood_adjacent_enemy_site" }];
+
+    // "Tap → Flood a site adjacent to your body of water until you do so again.
+    //  You may teleport there."
+    case "Avatar of Water":
+      return [{ kind: "flood_adjacent_enemy_site" }];
+
+    // ── Standalone abilities ───────────────────────────────────────────────
+
+    // "At the start of your turn, look at your topmost site or spell.
+    //  You may put it on the bottom of its deck."
+    case "Seer":
+      return [{ kind: "start_of_turn_scry" }];
+
+    // "Tap → Play or draw a site. If you played an earth site, fill a void
+    //  adjacent to you with Rubble."
+    case "Geomancer":
+      return [{ kind: "geomancer_rubble" }];
+
+    // "(1) → Ward a minion that was summoned this turn."
+    case "Savior":
+      return [{ kind: "on_minion_played_ward" }];
+
+    // "You may cast magics in your hand as Spirits with power equal to their cost."
+    case "Animist":
+      return [{ kind: "cast_magic_as_spirit" }];
+
+    // "Whenever you cast a spell, you may animate target aura until your next turn.
+    //  It's an aura minion with power equal to its cost."
+    case "Enchantress":
+      return [{ kind: "animate_aura_on_spell_cast" }];
+
+    // "Tap → Deal damage to a random unit equal to the sum of (A) on spells cast this turn."
+    case "Sparkmage":
+      return [{ kind: "turn_end_air_damage" }];
+
+    // "Tap → Curse target Avatar … they lose 2 life …" (modelled as automatic
+    //  start-of-turn damage; approximates recurring curse pressure)
+    case "Witch":
+      return [{ kind: "start_of_turn", grant: "damage_enemy", amount: 2 }];
+
+    // "You may banish a dead minion each turn to cast a copy of it, and for (0)
+    //  if you're on Death's Door."
+    case "Deathspeaker":
+      return [{ kind: "cemetery_summon", freeCostOnDeathsDoor: true }];
+
+    // "Banish three magic spells in your cemetery → Cast a copy of one of them."
+    case "Archimago":
+      return [{ kind: "cemetery_cast_spell", banishCount: 3 }];
+
+    // "Tap, Banish all your dead fire minions → Shoot a projectile. It deals
+    //  damage equal to the sum of their (F)."
+    case "Flamecaller":
+      return [{ kind: "cemetery_fire_damage" }];
 
     default:
       return [];
@@ -267,6 +419,34 @@ export function lookupAvatarAbilities(name: string): AvatarAbility[] {
 /** @deprecated Use lookupAvatarAbilities(name) instead. */
 export function parseAvatarAbilities(_rulesText: string): AvatarAbility[] {
   return [];
+}
+
+// ─── Subtype parser ───────────────────────────────────────────────────────────
+
+export function parseSubtypes(name: string, rulesText: string): string[] {
+  const n = name.toLowerCase();
+  const t = (rulesText ?? "").toLowerCase();
+  const subs: string[] = [];
+  // Knight-lineage cards (Templar discount)
+  if (n.startsWith("sir ") || n.startsWith("dame "))         subs.push("knight");
+  if (/\bknight\b/.test(t) || /\bknight\b/.test(n))         subs.push("knight");
+  // Creature families
+  if (/\bdragon\b/.test(n) || /\bdragon\b/.test(t))         subs.push("dragon");
+  if (/\bspirit\b/.test(n))                                  subs.push("spirit");
+  if (/\bskeleton\b/.test(n) || /\bzombie\b/.test(n) ||
+      /\blich\b/.test(n) || /\bghoul\b/.test(n))            subs.push("undead");
+  if (/\belf\b/.test(n)   || /\belves\b/.test(n))           subs.push("elf");
+  if (/\bdwarf\b/.test(n) || /\bdwarves\b/.test(n))         subs.push("dwarf");
+  if (/\bbeast\b/.test(n) || /\bbear\b/.test(n) ||
+      /\bwolf\b/.test(n)  || /\bwolves\b/.test(n))          subs.push("beast");
+  if (/\bangel\b/.test(n) || /\bseraph\b/.test(n))          subs.push("angel");
+  if (/\bdemon\b/.test(n) || /\bdevil\b/.test(n))           subs.push("demon");
+  if (/\bhuman\b/.test(t) || /\bmortal\b/.test(t))          subs.push("mortal");
+  if (/\bgoblin\b/.test(n))                                  subs.push("goblin");
+  if (/\btroll\b/.test(n))                                   subs.push("troll");
+  if (/\bgiant\b/.test(n))                                   subs.push("giant");
+  if (/\belementals?\b/.test(n))                             subs.push("elemental");
+  return [...new Set(subs)]; // deduplicate
 }
 
 // ─── Grid positions & helpers ─────────────────────────────────────────────────
@@ -311,12 +491,12 @@ function diagonalStep(from: Pos, to: Pos): Pos {
 // ─── Grid state ───────────────────────────────────────────────────────────────
 
 type SquareOwner = "A" | "B" | null;
-interface GridSquare { owner: SquareOwner; site?: SimCard; isRubble: boolean; }
+interface GridSquare { owner: SquareOwner; site?: SimCard; isRubble: boolean; flooded: boolean; }
 type Grid = GridSquare[][];
 
 function makeGrid(): Grid {
   return Array.from({ length: ROWS }, () =>
-    Array.from({ length: COLS }, () => ({ owner: null, site: undefined, isRubble: false }))
+    Array.from({ length: COLS }, () => ({ owner: null, site: undefined, isRubble: false, flooded: false }))
   );
 }
 function getSquare(grid: Grid, p: Pos): GridSquare { return grid[p.row][p.col]; }
@@ -353,6 +533,8 @@ interface BoardMinion {
   sick: boolean;
   tempDamage: number;
   stealthy: boolean;
+  skipNextUntap: boolean; // flooded squares: stays tapped through opponent's untap step
+  temporary: boolean;     // animated auras etc: removed at end of the turn they entered
 }
 
 /** Artifact in play — either equipment (attached to a minion) or a structure (on a site). */
@@ -389,10 +571,20 @@ interface PlayerState {
   spellHand:  SimCard[];
   mana:       number;
   threshold:  Threshold;
-  avatarTapUsed: boolean;
+  avatarTapUsed:   boolean;
+  avatarDigesting: boolean; // Realm-Eater: immobile for one turn after destroying a site
+  unifiedDeck:     boolean; // Magician: sites dealt from spellDeck, no atlasDeck
   sitesPlaced:     number;
   minionsDeployed: number;
   siteAttacks:     number;
+  // Cemetery — cards that have left the game this match
+  deadMinions: SimCard[];
+  deadSpells:  SimCard[];
+  // Per-turn tracking
+  deploymentSquares:    Pos[];   // Harbinger: fixed deployment squares
+  turnAirCostSpent:     number;  // Sparkmage: air threshold of spells cast this turn
+  firstSubtypeUsed:     boolean; // Templar: first knight-type discount consumed
+  lastMinionPlayed:     BoardMinion | null; // Savior: most recently played minion this turn
 }
 
 // ─── Misc helpers ─────────────────────────────────────────────────────────────
@@ -411,33 +603,71 @@ function remove<T>(arr: T[], item: T): T[] {
 }
 
 function initPlayer(spec: DeckSpec, id: "A" | "B"): PlayerState {
-  const sites    = shuffle(spec.cards.filter(c => c.type === "Site"));
-  const nonSites = shuffle(spec.cards.filter(c => c.type !== "Site" && c.type !== "Avatar"));
+  const abs = spec.avatar.avatarAbilities ?? [];
+
+  // Magician: unified deck — all non-avatar cards go into spellDeck
+  const isUnified = abs.some(a => a.kind === "setup_unified_deck");
+  const atlasDeckInit  = isUnified ? [] : shuffle(spec.cards.filter(c => c.type === "Site"));
+  const spellDeckInit  = isUnified
+    ? shuffle(spec.cards.filter(c => c.type !== "Avatar"))
+    : shuffle(spec.cards.filter(c => c.type !== "Site" && c.type !== "Avatar"));
+
   const p: PlayerState = {
     id,
     avatarCard:     spec.avatar,
     avatarLife:     spec.avatar.life > 0 ? spec.avatar.life : 20,
     avatarPos:      { col: AVATAR_COL, row: id === "A" ? 0 : 3 },
     deathsDoor:     false,
-    atlasDeck:      sites,
-    spellDeck:      nonSites,
+    atlasDeck:      atlasDeckInit,
+    spellDeck:      spellDeckInit,
     atlasHand:      [],
     spellHand:      [],
     mana:            0,
     threshold:       { water: 0, earth: 0, fire: 0, air: 0 },
     avatarTapUsed:   false,
+    avatarDigesting: false,
+    unifiedDeck:     isUnified,
     sitesPlaced:     0,
     minionsDeployed: 0,
     siteAttacks:     0,
+    deadMinions:     [],
+    deadSpells:      [],
+    deploymentSquares:    [],
+    turnAirCostSpent:     0,
+    firstSubtypeUsed:     false,
+    lastMinionPlayed:     null,
   };
-  // Starting hand size — base 3 spells, +N from setup_extra_spells ability
+
+  // Setup_hand: Duplicator uses 2/2 instead of 3/3
+  const setupHand = abs.find(a => a.kind === "setup_hand");
+  const startSites  = setupHand?.kind === "setup_hand" ? setupHand.sites  : 3;
+  const startSpells = setupHand?.kind === "setup_hand" ? setupHand.spells : 3;
+
+  // setup_extra_spells: Spellslinger gets +1
   let extraSpells = 0;
-  for (const ab of spec.avatar.avatarAbilities ?? [])
-    if (ab.kind === "setup_extra_spells") extraSpells += ab.amount;
-  for (let i = 0; i < 3 && p.atlasDeck.length > 0; i++) p.atlasHand.push(p.atlasDeck.pop()!);
-  for (let i = 0; i < 3 + extraSpells && p.spellDeck.length > 0; i++) p.spellHand.push(p.spellDeck.pop()!);
-  // Permanent threshold bonus (e.g. Elementalist) — applied at init so it's active turn 1
-  for (const ab of spec.avatar.avatarAbilities ?? [])
+  for (const ab of abs) if (ab.kind === "setup_extra_spells") extraSpells += ab.amount;
+
+  // Magician: all from spellDeck (no atlas hand); otherwise normal split
+  if (isUnified) {
+    const unifiedAb = abs.find(a => a.kind === "setup_unified_deck");
+    const handSize  = unifiedAb?.kind === "setup_unified_deck" ? unifiedAb.handSize : 7;
+    for (let i = 0; i < handSize && p.spellDeck.length > 0; i++) p.spellHand.push(p.spellDeck.pop()!);
+  } else {
+    for (let i = 0; i < startSites  && p.atlasDeck.length > 0;  i++) p.atlasHand.push(p.atlasDeck.pop()!);
+    for (let i = 0; i < startSpells + extraSpells && p.spellDeck.length > 0; i++) p.spellHand.push(p.spellDeck.pop()!);
+  }
+
+  // Harbinger: pick N random deployment squares across the full 5×4 grid
+  const harbAb = abs.find(a => a.kind === "fixed_deployment_squares");
+  if (harbAb?.kind === "fixed_deployment_squares") {
+    const allSquares: Pos[] = [];
+    for (let r = 0; r < ROWS; r++) for (let c = 0; c < COLS; c++) allSquares.push({ col: c, row: r });
+    const shuffled = shuffle(allSquares);
+    p.deploymentSquares = shuffled.slice(0, harbAb.count);
+  }
+
+  // Permanent threshold bonus (Elementalist) — active from turn 1
+  for (const ab of abs)
     if (ab.kind === "threshold_bonus") {
       p.threshold.water += ab.water; p.threshold.earth += ab.earth;
       p.threshold.fire  += ab.fire;  p.threshold.air   += ab.air;
@@ -446,6 +676,11 @@ function initPlayer(spec: DeckSpec, id: "A" | "B"): PlayerState {
 }
 
 function drawOne(p: PlayerState): void {
+  if (p.unifiedDeck) {
+    // Magician: single deck, everything goes to spellHand
+    if (p.spellDeck.length > 0) p.spellHand.push(p.spellDeck.pop()!);
+    return;
+  }
   const wantAtlas = (p.atlasHand.length <= p.spellHand.length && p.atlasDeck.length > 0) || p.spellDeck.length === 0;
   if (wantAtlas && p.atlasDeck.length > 0) p.atlasHand.push(p.atlasDeck.pop()!);
   else if (p.spellDeck.length > 0)          p.spellHand.push(p.spellDeck.pop()!);
@@ -613,6 +848,9 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     if (hasUndying) {
       player(bm.owner).spellHand.push(bm.card);
       emit(`  → ${bm.card.name} returns to hand (Undying)`);
+    } else {
+      // Normal death — card goes to cemetery
+      player(bm.owner).deadMinions.push(bm.card);
     }
     // Avatar on_friendly_death triggers
     const owner = player(bm.owner);
@@ -717,14 +955,22 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
   // ── Site placement ────────────────────────────────────────────────────────
 
   function playSite(active: PlayerState): void {
-    if (active.avatarTapUsed || active.atlasHand.length === 0) return;
+    if (active.avatarTapUsed) return;
+
+    // Magician draws sites from spellHand; others from atlasHand
+    const siteSource = active.unifiedDeck
+      ? active.spellHand.filter(c => c.type === "Site")
+      : active.atlasHand;
+    if (siteSource.length === 0) return;
+
     const squares = findSitePlacementSquares(grid, minions, active);
     if (squares.length === 0) return;
 
-    const card = chooseSiteCard(active.atlasHand, active.threshold, active.spellHand);
+    const card = chooseSiteCard(siteSource, active.threshold, active.spellHand);
     const pos  = chooseSitePosition(squares, opponent(active.id).avatarPos);
 
-    active.atlasHand = remove(active.atlasHand, card);
+    if (active.unifiedDeck) active.spellHand = remove(active.spellHand, card);
+    else                    active.atlasHand = remove(active.atlasHand, card);
     const sq = getSquare(grid, pos);
     sq.owner = active.id; sq.site = card; sq.isRubble = false;
     active.avatarTapUsed = true;
@@ -741,7 +987,30 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     for (const art of artifacts)
       if (art.owner === active.id && art.effect.kind === "structure") active.mana += art.effect.manaBonus;
 
+    // Pathfinder: avatar moves to the placed site
+    for (const ab of active.avatarCard.avatarAbilities ?? [])
+      if (ab.kind === "avatar_move_on_site_place") active.avatarPos = pos;
+
     emit(`T${turn} [${active.id}] places site ${card.name} at (${pos.col},${pos.row}) → ${active.mana} mana · W${active.threshold.water}E${active.threshold.earth}F${active.threshold.fire}A${active.threshold.air}`);
+
+    // Geomancer: when an earth site is placed, fill an adjacent void with Rubble
+    if (card.elements.includes("earth")) {
+      for (const ab of active.avatarCard.avatarAbilities ?? []) {
+        if (ab.kind !== "geomancer_rubble") continue;
+        const voids = cardinalNeighbors(active.avatarPos).filter(p => {
+          const s = getSquare(grid, p);
+          return s.owner === null && !s.isRubble;
+        });
+        if (voids.length > 0) {
+          // Pick the void closest to enemy avatar for maximum disruption
+          const rubblePos = [...voids].sort(
+            (a, b) => cardinalDist(b, opponent(active.id).avatarPos) - cardinalDist(a, opponent(active.id).avatarPos)
+          )[0];
+          getSquare(grid, rubblePos).isRubble = true;
+          emit(`T${turn} [${active.id}] Geomancer fills (${rubblePos.col},${rubblePos.row}) with Rubble`);
+        }
+      }
+    }
 
     // Avatar on_site_placed triggers
     for (const ab of active.avatarCard.avatarAbilities ?? []) {
@@ -912,23 +1181,50 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         return minionValue(b) - minionValue(a);
       })[0];
 
-      const cost = card.waterT + card.earthT + card.fireT + card.airT;
+      let cost = card.waterT + card.earthT + card.fireT + card.airT;
+
+      // Templar: first knight/sir/dame per turn costs 1 less
+      if (!active.firstSubtypeUsed && card.type === "Minion") {
+        const discountAb = (active.avatarCard.avatarAbilities ?? []).find(a => a.kind === "first_subtype_discount");
+        if (discountAb?.kind === "first_subtype_discount") {
+          const matches = discountAb.subtypes.some(s => card.subtypes.includes(s));
+          if (matches) { cost = Math.max(0, cost - 1); active.firstSubtypeUsed = true; }
+        }
+      }
+
       active.mana -= cost;
       active.spellHand = remove(active.spellHand, card);
 
       if (card.type === "Minion") {
-        const free = freeSiteSquares(grid, minions, active.id);
-        if (free.length === 0) { active.spellHand.push(card); active.mana += cost; break; }
-        const pos = chooseMinionPosition(free, opp.avatarPos);
+        // Harbinger: deployment squares are also valid placements (at the discounted cost already applied)
+        const freeSites  = freeSiteSquares(grid, minions, active.id);
+        const freeHarbinger = active.deploymentSquares.filter(
+          p => !minions.some(m => posEq(m.pos, p))
+        );
+        const allFree = [...freeSites];
+        for (const p of freeHarbinger) if (!allFree.some(q => posEq(q, p))) allFree.push(p);
+
+        if (allFree.length === 0) { active.spellHand.push(card); active.mana += cost; break; }
+        const pos = chooseMinionPosition(allFree, opp.avatarPos);
         const bm: BoardMinion = {
           card, pos, owner: active.id,
           tapped: false, sick: !hasKw(card, "charge"), tempDamage: 0,
-          stealthy: hasKw(card, "stealth"),
+          stealthy: hasKw(card, "stealth"), skipNextUntap: false, temporary: false,
         };
         minions.push(bm);
         active.minionsDeployed++;
+        active.lastMinionPlayed = bm;
         const kwStr = card.keywords.length ? ` [${card.keywords.join(",")}]` : "";
         emit(`T${turn} [${active.id}] plays ${card.name} (${card.attack}/${card.defense})${kwStr} → (${pos.col},${pos.row})`);
+
+        // Savior: spend 1 mana to ward a minion summoned this turn
+        for (const ab of active.avatarCard.avatarAbilities ?? []) {
+          if (ab.kind === "on_minion_played_ward" && active.mana >= 1) {
+            active.mana -= 1;
+            if (!bm.card.keywords.includes("ward")) bm.card = { ...bm.card, keywords: [...bm.card.keywords, "ward"] };
+            emit(`T${turn} [${active.id}] Savior wards ${bm.card.name}`);
+          }
+        }
         keepTrying = true;
 
       } else if (card.type === "Artifact") {
@@ -972,8 +1268,70 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
 
       } else {
         // Magic spell
+        active.turnAirCostSpent += card.airT; // Sparkmage tracking
+
+        // Animist: if no enemy minions to target, cast as a Spirit minion instead
+        const isAnimist = (active.avatarCard.avatarAbilities ?? []).some(a => a.kind === "cast_magic_as_spirit");
+        const hasEnemyTargets = enemyMinions(active.id).length > 0;
+        if (isAnimist && !hasEnemyTargets && cost >= 2) {
+          const freeSites = freeSiteSquares(grid, minions, active.id);
+          if (freeSites.length > 0) {
+            const pos = chooseMinionPosition(freeSites, opp.avatarPos);
+            const spiritCard: SimCard = {
+              name: `${card.name} Spirit`, type: "Minion",
+              attack: cost, defense: cost, life: 0,
+              waterT: 0, earthT: 0, fireT: 0, airT: 0,
+              elements: card.elements, keywords: [], subtypes: ["spirit"], rulesText: "",
+            };
+            const bm2: BoardMinion = {
+              card: spiritCard, pos, owner: active.id,
+              tapped: false, sick: true, tempDamage: 0,
+              stealthy: false, skipNextUntap: false, temporary: false,
+            };
+            minions.push(bm2);
+            active.minionsDeployed++;
+            emit(`T${turn} [${active.id}] Animist casts ${card.name} as ${cost}/${cost} Spirit → (${pos.col},${pos.row})`);
+            active.deadSpells.push(card);
+            keepTrying = true;
+            continue;
+          }
+        }
+
+        // Normal spell resolution — goes to cemetery
         const fx = card.spellEffect ?? parseSpellEffect(card.rulesText);
         resolveSpellEffect(active, opp, fx, cost, card.name);
+        active.deadSpells.push(card);
+
+        // Enchantress: after casting a spell, animate the cheapest aura in hand as a temporary minion
+        for (const ab of active.avatarCard.avatarAbilities ?? []) {
+          if (ab.kind !== "animate_aura_on_spell_cast") continue;
+          const auras2 = active.spellHand.filter(c => c.type === "Aura");
+          if (auras2.length === 0) continue;
+          const aura = [...auras2].sort((a, b) =>
+            (a.waterT + a.earthT + a.fireT + a.airT) - (b.waterT + b.earthT + b.fireT + b.airT)
+          )[0];
+          const auraCost = aura.waterT + aura.earthT + aura.fireT + aura.airT;
+          const freeSites = freeSiteSquares(grid, minions, active.id);
+          if (freeSites.length > 0) {
+            const pos = chooseMinionPosition(freeSites, opp.avatarPos);
+            const animCard: SimCard = {
+              name: `${aura.name} (animated)`, type: "Minion",
+              attack: Math.max(1, auraCost), defense: Math.max(1, auraCost), life: 0,
+              waterT: 0, earthT: 0, fireT: 0, airT: 0,
+              elements: aura.elements, keywords: [], subtypes: [], rulesText: "",
+            };
+            const bm3: BoardMinion = {
+              card: animCard, pos, owner: active.id,
+              tapped: false, sick: false, tempDamage: 0,
+              stealthy: false, skipNextUntap: false, temporary: true,
+            };
+            minions.push(bm3);
+            active.minionsDeployed++;
+            active.spellHand = remove(active.spellHand, aura);
+            emit(`T${turn} [${active.id}] Enchantress animates ${aura.name} as ${animCard.attack}/${animCard.defense} minion`);
+          }
+        }
+
         // Avatar on_spell_cast triggers
         for (const ab of active.avatarCard.avatarAbilities ?? []) {
           if (ab.kind !== "on_spell_cast") continue;
@@ -1131,6 +1489,133 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     }
   }
 
+  // ── Avatar action step ────────────────────────────────────────────────────
+
+  function avatarActionStep(active: PlayerState): void {
+    const hasAbility = (k: AvatarAbility["kind"]) =>
+      (active.avatarCard.avatarAbilities ?? []).some(a => a.kind === k);
+
+    if (!hasAbility("avatar_combat")) return;
+    if (active.avatarTapUsed) return; // tap already spent placing a site
+
+    const opp = opponent(active.id);
+
+    // Realm-Eater digesting: spend this turn's tap to finish digesting, can't attack
+    if (active.avatarDigesting) {
+      active.avatarDigesting = false;
+      active.avatarTapUsed   = true;
+      emit(`T${turn} [${active.id}] ${active.avatarCard.name} finishes digesting`);
+      return;
+    }
+
+    // Effective avatar ATK (Avatar of Earth scales with adjacent earth sites)
+    let avatarAtk = active.avatarCard.attack;
+    if (hasAbility("dynamic_atk_per_adjacent_earth_site")) {
+      avatarAtk += cardinalNeighbors(active.avatarPos).filter(p => {
+        const s = getSquare(grid, p);
+        return s.owner === active.id && (s.site?.elements ?? []).includes("earth");
+      }).length;
+    }
+
+    // Inner: perform one combat at current avatar position; return true if an attack happened
+    const doAttack = (): boolean => {
+      const pos = active.avatarPos;
+      const sq  = getSquare(grid, pos);
+
+      // Enemies sharing the square
+      const colocated = enemyMinions(active.id).filter(e => posEq(e.pos, pos));
+      if (colocated.length > 0) {
+        const def = [...colocated].sort((a, b) => effAtk(b) - effAtk(a))[0];
+        const defDies    = avatarAtk >= effDef(def);
+        const avatarHurt = effAtk(def) > 0;
+        emit(`T${turn} [${active.id}] ${active.avatarCard.name} (${avatarAtk}/${active.avatarCard.defense}) fights ${def.card.name}`);
+        if (defDies) { removeMinion(def); emit(`  → ${def.card.name} destroyed`); }
+        if (avatarHurt) damageAvatar(active, effAtk(def), def.card.name);
+        return true;
+      }
+
+      if (sq.owner !== opp.id) return false;
+
+      // Check for Defend on this site
+      const defenders = friendlyMinions(opp.id).filter(
+        d => !d.tapped && cardinalDist(d.pos, pos) <= 1
+      );
+      if (defenders.length > 0) {
+        const def = [...defenders].sort(
+          (a, b) => cardinalDist(a.pos, pos) - cardinalDist(b.pos, pos)
+        )[0];
+        const fromPos = { ...def.pos };
+        def.pos   = { ...pos };
+        def.tapped = true;
+        emit(`T${turn} [${opp.id}] ${def.card.name} defends from (${fromPos.col},${fromPos.row})`);
+        const defDies    = avatarAtk >= effDef(def);
+        const avatarHurt = effAtk(def) > 0;
+        emit(`T${turn} [${active.id}] ${active.avatarCard.name} vs defender ${def.card.name}`);
+        if (defDies) { removeMinion(def); emit(`  → ${def.card.name} destroyed`); }
+        if (avatarHurt) damageAvatar(active, effAtk(def), def.card.name);
+        return true;
+      }
+
+      // Undefended site attack
+      active.siteAttacks++;
+      damageAvatar(opp, avatarAtk, `${active.avatarCard.name} (avatar site attack)`);
+      emit(`T${turn} [${active.id}] ${active.avatarCard.name} attacks undefended site at (${pos.col},${pos.row})`);
+
+      if (hasAbility("avatar_destroy_site_on_attack")) {
+        const siteName = sq.site?.name ?? "site";
+        sq.owner = null; sq.site = undefined; sq.isRubble = true;
+        opp.mana      = countSites(grid, opp.id);
+        opp.threshold = siteThreshold(grid, opp.id);
+        emit(`  → ${active.avatarCard.name} destroys ${siteName}; now digesting`);
+        active.avatarDigesting = true;
+      }
+
+      // on_site_attack_draw fires for avatar attacks too (Battlemage, Interrogator)
+      for (const ab of active.avatarCard.avatarAbilities ?? [])
+        if (ab.kind === "on_site_attack_draw") {
+          for (let i = 0; i < ab.amount; i++) drawOne(active);
+          emit(`  → ${active.avatarCard.name} draws ${ab.amount} (site attack)`);
+        }
+      return true;
+    };
+
+    // Choose nearest enemy site or enemy avatar as destination
+    const destinations = [
+      ...ownedSites(grid, opp.id),
+      opp.avatarPos,
+    ].sort((a, b) => cardinalDist(active.avatarPos, a) - cardinalDist(active.avatarPos, b));
+
+    if (destinations.length === 0) return;
+
+    // Advance one step
+    if (!posEq(active.avatarPos, destinations[0])) {
+      const step = cardinalStep(active.avatarPos, destinations[0]);
+      if (inBounds(step)) {
+        emit(`T${turn} [${active.id}] ${active.avatarCard.name} advances (${active.avatarPos.col},${active.avatarPos.row})→(${step.col},${step.row})`);
+        active.avatarPos = step;
+      }
+    }
+
+    const attacked = doAttack();
+    active.avatarTapUsed = true;
+
+    // Bladedancer: bonus step + attack after the first
+    if (attacked && hasAbility("avatar_extra_step_after_attack") && !active.avatarDigesting) {
+      const dest2 = [
+        ...ownedSites(grid, opp.id),
+        opp.avatarPos,
+      ].sort((a, b) => cardinalDist(active.avatarPos, a) - cardinalDist(active.avatarPos, b));
+      if (dest2.length > 0 && !posEq(active.avatarPos, dest2[0])) {
+        const step2 = cardinalStep(active.avatarPos, dest2[0]);
+        if (inBounds(step2)) {
+          emit(`T${turn} [${active.id}] ${active.avatarCard.name} takes bonus step to (${step2.col},${step2.row})`);
+          active.avatarPos = step2;
+          doAttack();
+        }
+      }
+    }
+  }
+
   // ─── Main turn loop ───────────────────────────────────────────────────────
 
   let turn = 0;
@@ -1142,8 +1627,16 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     const passive = turn % 2 === 1 ? pB : pA;
 
     // Untap / clear flags
-    for (const m of friendlyMinions(active.id)) { m.tapped = false; m.sick = false; }
-    active.avatarTapUsed = false;
+    for (const m of friendlyMinions(active.id)) {
+      // flooded minions with skipNextUntap stay tapped this turn and consume the flag
+      if (m.skipNextUntap) { m.skipNextUntap = false; }
+      else                  { m.tapped = false; }
+      m.sick = false;
+    }
+    active.avatarTapUsed     = false;
+    active.turnAirCostSpent  = 0;
+    active.firstSubtypeUsed  = false;
+    active.lastMinionPlayed  = null;
 
     // Refresh mana (sites + structure artifacts)
     active.mana      = countSites(grid, active.id);
@@ -1175,6 +1668,24 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       }
     }
 
+    // Seer: start_of_turn_scry — look at top spell; bottom it if it won't be payable next turn
+    for (const ab of active.avatarCard.avatarAbilities ?? []) {
+      if (ab.kind !== "start_of_turn_scry") continue;
+      if (active.spellDeck.length > 0) {
+        const top  = active.spellDeck[active.spellDeck.length - 1];
+        const cost = top.waterT + top.earthT + top.fireT + top.airT;
+        // "Won't be playable" heuristic: costs more than mana+1 OR missing threshold
+        const nextMana = active.mana + 1; // rough projection
+        if (cost > nextMana || !canPlay(top, active.threshold, nextMana)) {
+          active.spellDeck.pop();
+          active.spellDeck.unshift(top);
+          emit(`T${turn} [${active.id}] Seer bottoms ${top.name} (cost ${cost})`);
+        } else {
+          emit(`T${turn} [${active.id}] Seer keeps ${top.name} on top`);
+        }
+      }
+    }
+
     // Draw
     if (!(turn === 1 && active.id === "A")) drawOne(active);
 
@@ -1183,6 +1694,49 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
 
     // Play cards
     playCards(active);
+
+    // Flooding (Waveshaper / Avatar of Water): flood nearest enemy site; tap non-submerge minions there
+    for (const ab of active.avatarCard.avatarAbilities ?? []) {
+      if (ab.kind !== "flood_adjacent_enemy_site") continue;
+      const enemySitePositions = ownedSites(grid, opponent(active.id).id);
+      if (enemySitePositions.length === 0) break;
+      // Un-flood previous square (there's at most one flooded square per player)
+      for (let r = 0; r < ROWS; r++)
+        for (let c2 = 0; c2 < COLS; c2++)
+          grid[r][c2].flooded = false;
+      // Choose the site farthest from the enemy avatar (= most advanced / vulnerable)
+      const floodTarget = [...enemySitePositions].sort(
+        (a, b) => cardinalDist(b, opponent(active.id).avatarPos) - cardinalDist(a, opponent(active.id).avatarPos)
+      )[0];
+      getSquare(grid, floodTarget).flooded = true;
+      emit(`T${turn} [${active.id}] ${active.avatarCard.name} floods (${floodTarget.col},${floodTarget.row})`);
+      // Tap non-submerge minions there and mark them to skip their next untap
+      for (const bm of minions) {
+        if (!posEq(bm.pos, floodTarget)) continue;
+        if (bHasKw(bm, "submerge")) continue;
+        bm.tapped = true;
+        bm.skipNextUntap = true;
+        emit(`  → ${bm.card.name} flooded (skips next untap)`);
+      }
+      break; // only one flood_adjacent_enemy_site ability
+    }
+
+    // Sparkmage: deal air-cost damage to weakest enemy after playing cards this turn
+    for (const ab of active.avatarCard.avatarAbilities ?? []) {
+      if (ab.kind !== "turn_end_air_damage") continue;
+      if (active.turnAirCostSpent <= 0) continue;
+      const targets = enemyMinions(active.id).filter(m => !m.stealthy);
+      if (targets.length > 0) {
+        const victim = [...targets].sort((a, b) => effDef(a) - effDef(b))[0];
+        emit(`T${turn} [${active.id}] Sparkmage deals ${active.turnAirCostSpent} to ${victim.card.name}`);
+        if (active.turnAirCostSpent >= effDef(victim)) {
+          removeMinion(victim);
+          emit(`  → ${victim.card.name} destroyed by Sparkmage`);
+        }
+      } else {
+        damageAvatar(opponent(active.id), active.turnAirCostSpent, "Sparkmage");
+      }
+    }
 
     // Once-per-turn token summons (e.g. Necromancer skeleton)
     for (const ab of active.avatarCard.avatarAbilities ?? []) {
@@ -1196,24 +1750,92 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         name: "Token", type: "Minion",
         attack: ab.attack, defense: ab.defense, life: 0,
         waterT: 0, earthT: 0, fireT: 0, airT: 0,
-        elements: [], keywords: [], rulesText: "",
+        elements: [], keywords: [], subtypes: [], rulesText: "",
       };
       const bm: BoardMinion = {
         card: tokenCard, pos, owner: active.id,
         tapped: false, sick: true, tempDamage: 0, stealthy: false,
+        skipNextUntap: false, temporary: false,
       };
       minions.push(bm);
       active.minionsDeployed++;
       emit(`T${turn} [${active.id}] ${active.avatarCard.name} summons a ${ab.attack}/${ab.defense} token at (${pos.col},${pos.row})`);
     }
 
+    // Cemetery abilities
+    for (const ab of active.avatarCard.avatarAbilities ?? []) {
+
+      // Deathspeaker: banish a dead minion to re-summon it
+      if (ab.kind === "cemetery_summon" && active.deadMinions.length > 0) {
+        const isFree = ab.freeCostOnDeathsDoor && active.deathsDoor;
+        const candidate = [...active.deadMinions]
+          .sort((a, b) => minionValue(b) - minionValue(a))[0];
+        const cost2 = candidate.waterT + candidate.earthT + candidate.fireT + candidate.airT;
+        const canAfford = isFree || (active.mana >= cost2 && canPlay(candidate, active.threshold, active.mana));
+        if (canAfford) {
+          const free2 = freeSiteSquares(grid, minions, active.id);
+          if (free2.length > 0) {
+            active.deadMinions = active.deadMinions.filter(c => c !== candidate);
+            if (!isFree) active.mana -= cost2;
+            const pos2 = chooseMinionPosition(free2, opponent(active.id).avatarPos);
+            const bm2: BoardMinion = {
+              card: candidate, pos: pos2, owner: active.id,
+              tapped: false, sick: true, tempDamage: 0, stealthy: hasKw(candidate, "stealth"),
+              skipNextUntap: false, temporary: false,
+            };
+            minions.push(bm2);
+            active.minionsDeployed++;
+            emit(`T${turn} [${active.id}] Deathspeaker re-summons ${candidate.name} from cemetery${isFree ? " (free)" : ""}`);
+          }
+        }
+      }
+
+      // Archimago: banish 3 dead spells → cast a copy of one
+      if (ab.kind === "cemetery_cast_spell" && active.deadSpells.length >= ab.banishCount) {
+        // Pick the highest-value spell and cast it again for free
+        const spellCopy = [...active.deadSpells]
+          .sort((a, b) => minionValue(b) - minionValue(a))[0];
+        // Banish banishCount spells from cemetery
+        const toRemove = ab.banishCount;
+        for (let i = 0; i < toRemove && active.deadSpells.length > 0; i++)
+          active.deadSpells.shift();
+        const fx2 = spellCopy.spellEffect ?? parseSpellEffect(spellCopy.rulesText);
+        const spellCost = spellCopy.waterT + spellCopy.earthT + spellCopy.fireT + spellCopy.airT;
+        resolveSpellEffect(active, opponent(active.id), fx2, spellCost, `${spellCopy.name} (Archimago copy)`);
+        emit(`T${turn} [${active.id}] Archimago casts copy of ${spellCopy.name} from cemetery`);
+      }
+
+      // Flamecaller: banish all dead fire minions → deal their total (F) as damage
+      if (ab.kind === "cemetery_fire_damage") {
+        const fireMinions = active.deadMinions.filter(c => c.fireT > 0 || c.elements.includes("fire"));
+        if (fireMinions.length > 0) {
+          const totalF = fireMinions.reduce((sum, c) => sum + c.fireT, 0);
+          if (totalF > 0) {
+            active.deadMinions = active.deadMinions.filter(c => !fireMinions.includes(c));
+            damageAvatar(opponent(active.id), totalF, "Flamecaller");
+            emit(`T${turn} [${active.id}] Flamecaller banishes ${fireMinions.length} fire minion(s) for ${totalF} damage`);
+          }
+        }
+      }
+    }
+
     // Combat
     combatStep(active);
+
+    // Avatar action (combat avatars that didn't tap for a site attack independently)
+    avatarActionStep(active);
 
     // End of turn: clear temp damage and temporary buff auras
     for (const m of minions) m.tempDamage = 0;
     for (let i = auras.length - 1; i >= 0; i--)
       if (auras[i].temporary && auras[i].owner === active.id) auras.splice(i, 1);
+    // Remove temporary minions (Enchantress animated auras expire end of owner's turn)
+    for (let i = minions.length - 1; i >= 0; i--) {
+      if (minions[i].temporary && minions[i].owner === active.id) {
+        emit(`T${turn} [${active.id}] ${minions[i].card.name} expires`);
+        minions.splice(i, 1);
+      }
+    }
 
     if (keepLog) snapshots.push(captureSnapshot(turn, active.id));
 
@@ -1379,6 +2001,7 @@ export function toSimCards(
       elements: (c.elements ?? []).map((e: { id: string }) => e.id),
       keywords: parseKeywords(rulesText),
       rulesText,
+      subtypes:        type === "Minion"   ? parseSubtypes(c.name, rulesText) : [],
       spellEffect:     type === "Magic"    ? parseSpellEffect(rulesText)     : undefined,
       artifactEffect:  type === "Artifact" ? parseArtifactEffect(rulesText)  : undefined,
       auraEffect:      type === "Aura"     ? parseAuraEffect(rulesText)      : undefined,

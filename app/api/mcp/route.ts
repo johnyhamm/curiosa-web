@@ -472,7 +472,7 @@ function createMcpServer(): McpServer {
       const unknownAvatar = {
         name: "Unknown Avatar", type: "Avatar" as const,
         attack: 0, defense: 0, life: 20, waterT: 0, earthT: 0, fireT: 0, airT: 0,
-        elements: [], keywords: [], rulesText: "",
+        elements: [], keywords: [], subtypes: [], rulesText: "",
       };
 
       const avatarSimA = avatarCardA
