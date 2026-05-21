@@ -192,7 +192,24 @@ export type SiteEffect =
   /** Passive: provides no mana or threshold while any minion occupies it. */
   | { kind: "passive_no_mana_if_occupied" }
   /** Passive: whenever a site is played adjacent to this one, its controller loses X life. */
-  | { kind: "passive_site_play_damage"; amount: number };
+  | { kind: "passive_site_play_damage"; amount: number }
+  // ── Tier 1 additions ────────────────────────────────────────────────────
+  /** Genesis: add a burst of threshold this turn (Bloom sites). */
+  | { kind: "genesis_threshold_burst"; water: boolean; earth: boolean; fire: boolean; air: boolean }
+  /** Genesis: tap all enemy minions on adjacent sites + set skipNextUntap (Quagmire / Bog / Babbling Brook / Silent Hills). */
+  | { kind: "genesis_immobilize_nearby" }
+  /** Genesis: deal 1 damage to enemy avatar per nearby site they own (Poisoned Well). */
+  | { kind: "genesis_damage_per_enemy_site" }
+  /** Genesis: banish all dead minions from your cemetery and heal 1 life each (Pillar of Zeiros). */
+  | { kind: "genesis_cemetery_heal" }
+  /** Genesis: all enemy minions on the board lose Stealth (Hunter's Lodge). */
+  | { kind: "genesis_strip_stealth" }
+  /** Genesis: give Stealth to the best nearby friendly minion (Treetop Hideout). */
+  | { kind: "genesis_grant_stealth" }
+  /** Genesis: gain 1 mana per adjacent site that has an enemy minion atop it (Beacon). */
+  | { kind: "genesis_mana_per_contested_neighbor" }
+  /** Passive: only provides mana and threshold while in the owner's back row. */
+  | { kind: "passive_back_row_only" };
 
 export function parseSiteEffect(name: string, rulesText: string): SiteEffect | undefined {
   const t = (rulesText ?? "").toLowerCase();
@@ -226,6 +243,11 @@ export function parseSiteEffect(name: string, rulesText: string): SiteEffect | u
   if (/genesis\b.*pay.*①.*summon.*token|genesis\b.*pay.*\(1\).*summon.*token|genesis\b.*conjure.*token/.test(t))
     return { kind: "genesis_token", tokenAtk: 1, tokenDef: 1, tokenCost: 1 };
 
+  // "Genesis → Banish all dead minions, and you heal 1 life for each." (Pillar of Zeiros)
+  // Must come BEFORE the generic heal check.
+  if (/genesis\b.*banish all dead minions.*heal/.test(t))
+    return { kind: "genesis_cemetery_heal" };
+
   // "Genesis → Each nearby Avatar heals N life." (Holy Ground)
   const heal = t.match(/genesis\b.*heals?\s+(\d+)\s+life/);
   if (heal) return { kind: "genesis_heal", amount: parseInt(heal[1]) };
@@ -258,6 +280,45 @@ export function parseSiteEffect(name: string, rulesText: string): SiteEffect | u
   // "Whenever another site is played nearby, its controller loses N life." (Cursed Land)
   const cursed = t.match(/site is played nearby.*loses\s+(\d+)\s+life/);
   if (cursed) return { kind: "passive_site_play_damage", amount: parseInt(cursed[1]) };
+
+  // ── Tier 1 additions ────────────────────────────────────────────────────
+
+  // "Genesis → Provides (A)(E)(F) this turn." (Bloom variants)
+  // Letters inside parens: A=air E=earth F=fire W=water
+  if (/genesis\b.*provides\s+[(\[]/.test(t)) {
+    return {
+      kind: "genesis_threshold_burst",
+      air:   /\(a\)/.test(t),
+      earth: /\(e\)/.test(t),
+      fire:  /\(f\)/.test(t),
+      water: /\(w\)/.test(t),
+    };
+  }
+
+  // "Genesis → Until your next turn, units are Immobile / disabled / silenced while … nearby sites."
+  // (Quagmire, Babbling Brook, Bog, Silent Hills, Leadworks)
+  if (/genesis\b.*(immobile|disabled|silenced).*nearby/.test(t))
+    return { kind: "genesis_immobilize_nearby" };
+
+  // "Genesis → Enemy Avatars lose 1 life for each nearby site they control." (Poisoned Well)
+  if (/genesis\b.*enemy.*lose.*life.*each.*nearby site/.test(t))
+    return { kind: "genesis_damage_per_enemy_site" };
+
+  // "Genesis → Enemies lose Stealth." (Hunter's Lodge)
+  if (/genesis\b.*enemies\s+lose\s+stealth/.test(t))
+    return { kind: "genesis_strip_stealth" };
+
+  // "Genesis → You may give Stealth to a nearby allied minion." (Treetop Hideout)
+  if (/genesis\b.*give stealth.*nearby/.test(t))
+    return { kind: "genesis_grant_stealth" };
+
+  // "Genesis → Gain (1) for each nearby site with an enemy atop it." (Beacon)
+  if (/genesis\b.*gain.*for each nearby site.*enemy/.test(t))
+    return { kind: "genesis_mana_per_contested_neighbor" };
+
+  // "Only provides mana and threshold while in your back row." (Caerleon, Glastonbury Tor, Joyous Garde)
+  if (/only provides mana.*back row/.test(t))
+    return { kind: "passive_back_row_only" };
 
   return undefined;
 }
@@ -604,18 +665,42 @@ function ownedSites(grid: Grid, owner: "A" | "B"): Pos[] {
 }
 function countSites(grid: Grid, owner: "A" | "B"): number { return ownedSites(grid, owner).length; }
 
-/** Mana = sites owned, but sites with passive_no_mana_if_occupied contribute 0 when any minion is on them. */
+/** Mana = sites owned, minus those whose passive conditions aren't met. */
 function computeMana(grid: Grid, minions: BoardMinion[], owner: "A" | "B"): number {
+  // Back row: row 0 for A (avatar starts row 0), row 3 for B (avatar starts row 3)
+  const backRow = owner === "A" ? 0 : ROWS - 1;
   let mana = 0;
   for (const p of ownedSites(grid, owner)) {
     const sq = getSquare(grid, p);
-    if (sq.site?.siteEffect?.kind === "passive_no_mana_if_occupied") {
-      const occupied = minions.some(m => posEq(m.pos, p));
-      if (occupied) continue; // contributes nothing
+    const eff = sq.site?.siteEffect;
+    if (eff?.kind === "passive_no_mana_if_occupied") {
+      if (minions.some(m => posEq(m.pos, p))) continue;
+    }
+    if (eff?.kind === "passive_back_row_only") {
+      if (p.row !== backRow) continue; // only contributes from the back row
     }
     mana++;
   }
   return mana;
+}
+
+/** siteThreshold skips sites whose passive_back_row_only condition isn't met. */
+function computeThreshold(grid: Grid, minions: BoardMinion[], owner: "A" | "B"): Threshold {
+  const backRow = owner === "A" ? 0 : ROWS - 1;
+  const th: Threshold = { water: 0, earth: 0, fire: 0, air: 0 };
+  for (const p of ownedSites(grid, owner)) {
+    const sq = getSquare(grid, p);
+    const eff = sq.site?.siteEffect;
+    if (eff?.kind === "passive_back_row_only" && p.row !== backRow) continue;
+    if (eff?.kind === "passive_no_mana_if_occupied" && minions.some(m => posEq(m.pos, p))) continue;
+    for (const el of sq.site?.elements ?? []) {
+      if      (el === "water") th.water++;
+      else if (el === "earth") th.earth++;
+      else if (el === "fire")  th.fire++;
+      else if (el === "air")   th.air++;
+    }
+  }
+  return th;
 }
 
 function siteThreshold(grid: Grid, owner: "A" | "B"): Threshold {
@@ -1085,7 +1170,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     active.avatarTapUsed = true;
     active.sitesPlaced++;
     active.mana      = computeMana(grid, minions, active.id);
-    active.threshold = siteThreshold(grid, active.id);
+    active.threshold = computeThreshold(grid, minions, active.id);
     // Re-apply permanent threshold bonus after recalculating from sites
     for (const ab of active.avatarCard.avatarAbilities ?? [])
       if (ab.kind === "threshold_bonus") {
@@ -1222,6 +1307,95 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
           break;
         }
 
+        case "genesis_threshold_burst": {
+          // Bloom sites: add burst threshold for this turn only.
+          // We model it as a permanent bonus here (it's re-calculated from sites next turn, so it
+          // naturally expires; we just need the threshold for the remaining playCards this turn).
+          if (siteEff.air)   active.threshold.air++;
+          if (siteEff.earth) active.threshold.earth++;
+          if (siteEff.fire)  active.threshold.fire++;
+          if (siteEff.water) active.threshold.water++;
+          const gained = [siteEff.air&&"A",siteEff.earth&&"E",siteEff.fire&&"F",siteEff.water&&"W"]
+            .filter(Boolean).join("");
+          emit(`T${turn} [${active.id}] ${card.name} Genesis: +threshold (${gained}) this turn`);
+          break;
+        }
+
+        case "genesis_immobilize_nearby": {
+          // Tap all enemy minions on adjacent sites and set skipNextUntap (simulates Immobile)
+          const neighbors2 = cardinalNeighbors(pos);
+          let tapped2 = 0;
+          for (const bm of minions) {
+            if (bm.owner === active.id) continue;
+            if (!neighbors2.some(nb => posEq(nb, bm.pos))) continue;
+            bm.tapped = true;
+            bm.skipNextUntap = true;
+            tapped2++;
+          }
+          if (tapped2 > 0)
+            emit(`T${turn} [${active.id}] ${card.name} Genesis: immobilised ${tapped2} nearby enemy minion(s)`);
+          break;
+        }
+
+        case "genesis_damage_per_enemy_site": {
+          // Poisoned Well: 1 damage per nearby enemy site
+          const nearbySites2 = cardinalNeighbors(pos).filter(p => getSquare(grid, p).owner === opp.id);
+          if (nearbySites2.length > 0) {
+            emit(`T${turn} [${active.id}] ${card.name} Genesis: ${nearbySites2.length} damage (${nearbySites2.length} nearby enemy sites)`);
+            damageAvatar(opp, nearbySites2.length, card.name);
+          }
+          break;
+        }
+
+        case "genesis_cemetery_heal": {
+          // Pillar of Zeiros: banish all dead minions, heal 1 per
+          const banished = active.deadMinions.length;
+          if (banished > 0) {
+            active.deadMinions = [];
+            const maxLife2 = active.avatarCard.life > 0 ? active.avatarCard.life : 20;
+            active.avatarLife = Math.min(maxLife2, active.avatarLife + banished);
+            emit(`T${turn} [${active.id}] ${card.name} Genesis: banished ${banished} dead minions, healed ${banished} life`);
+          }
+          break;
+        }
+
+        case "genesis_strip_stealth": {
+          // Hunter's Lodge: all enemy minions lose Stealth
+          let stripped = 0;
+          for (const bm of minions) {
+            if (bm.owner !== active.id && bm.stealthy) { bm.stealthy = false; stripped++; }
+          }
+          if (stripped > 0)
+            emit(`T${turn} [${active.id}] ${card.name} Genesis: stripped Stealth from ${stripped} enemy minion(s)`);
+          break;
+        }
+
+        case "genesis_grant_stealth": {
+          // Treetop Hideout: give Stealth to the highest-value nearby friendly minion
+          const nearbyFriends = friendlyMinions(active.id).filter(
+            bm => cardinalNeighbors(pos).some(nb => posEq(nb, bm.pos)) || posEq(bm.pos, pos)
+          );
+          if (nearbyFriends.length > 0) {
+            const target = [...nearbyFriends].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+            target.stealthy = true;
+            emit(`T${turn} [${active.id}] ${card.name} Genesis: ${target.card.name} gains Stealth`);
+          }
+          break;
+        }
+
+        case "genesis_mana_per_contested_neighbor": {
+          // Beacon: +1 mana per adjacent site that has an enemy minion on it
+          const contested = cardinalNeighbors(pos).filter(nb => {
+            const sq2 = getSquare(grid, nb);
+            return sq2.owner !== null && minions.some(bm => bm.owner === opp.id && posEq(bm.pos, nb));
+          });
+          if (contested.length > 0) {
+            active.mana += contested.length;
+            emit(`T${turn} [${active.id}] ${card.name} Genesis: +${contested.length} mana (${contested.length} contested neighbor(s))`);
+          }
+          break;
+        }
+
         default: break; // passive effects handled elsewhere
       }
     }
@@ -1327,7 +1501,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
           const siteName = sq.site?.name ?? "enemy site";
           sq.owner = null; sq.site = undefined; sq.isRubble = true;
           opp.mana      = computeMana(grid, minions, opp.id);
-          opp.threshold = siteThreshold(grid, opp.id);
+          opp.threshold = computeThreshold(grid, minions, opp.id);
           emit(`T${turn} [${active.id}] casts ${cardName}: destroys ${siteName} at (${target.col},${target.row})`);
         } else {
           damageAvatar(opp, Math.max(1, cost), cardName);
@@ -1794,7 +1968,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         const siteName = sq.site?.name ?? "site";
         sq.owner = null; sq.site = undefined; sq.isRubble = true;
         opp.mana      = computeMana(grid, minions, opp.id);
-        opp.threshold = siteThreshold(grid, opp.id);
+        opp.threshold = computeThreshold(grid, minions, opp.id);
         emit(`  → ${active.avatarCard.name} destroys ${siteName}; now digesting`);
         active.avatarDigesting = true;
       }
@@ -1910,7 +2084,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
 
     // Refresh mana (sites + structure artifacts)
     active.mana      = computeMana(grid, minions, active.id);
-    active.threshold = siteThreshold(grid, active.id);
+    active.threshold = computeThreshold(grid, minions, active.id);
     for (const art of artifacts)
       if (art.owner === active.id && art.effect.kind === "structure") active.mana += art.effect.manaBonus;
     // Re-apply permanent threshold bonus (recalculated from scratch each turn)
