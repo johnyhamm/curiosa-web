@@ -234,7 +234,44 @@ export type SiteEffect =
   /** Passive: all healing is halved rounded down (River of Blood). */
   | { kind: "passive_halve_healing" }
   /** Passive: both players gain mana and threshold from this site (Avalon). */
-  | { kind: "passive_shared_mana" };
+  | { kind: "passive_shared_mana" }
+  // ── Tier 3 additions ────────────────────────────────────────────────────
+  /** Genesis: re-fire the Genesis ability of each adjacent Desert site you own (Shifting Sands). */
+  | { kind: "genesis_refire_nearby_deserts" }
+  /** Genesis: this site permanently gains the element the owner needs most (Valley of Delight). */
+  | { kind: "genesis_choose_threshold" }
+  /** Genesis: draw a spell (standalone — e.g. future sites with just "Genesis → Draw a spell"). */
+  | { kind: "genesis_draw_spell" }
+  /** Genesis: draw a spell; when this site is first successfully attacked, owner discards a spell (Wizard's Den). */
+  | { kind: "genesis_draw_spell_and_discard" }
+  /** Passive: whenever a site is played adjacent to this, summon a Skeleton token there (Boulevard of Bones). */
+  | { kind: "passive_skeleton_on_adjacent_site" }
+  /** Passive: when the opponent destroys a nearby allied site, they lose 7 life (Vindictive Nation). */
+  | { kind: "passive_vindictive_nation" }
+  /** Passive: once per turn, spend ① to gain the owner's most-needed threshold (Annual Fair). */
+  | { kind: "passive_annual_fair" }
+  /** Genesis: this turn the next Beast cast here costs ① less ignoring threshold (Pond). */
+  | { kind: "genesis_beast_discount" }
+  /** Passive: minions atop nearby sites lose Charge (Pebbled Paths). */
+  | { kind: "passive_suppress_charge_nearby" }
+  /** Passive: this site counts as 2 mana instead of 1 (City of Souls, City of Traitors — simplified). */
+  | { kind: "passive_double_mana" }
+  /** Passive: Dragon minions cast here cost ① less and require no threshold (Dragonlord's Lair). */
+  | { kind: "passive_dragon_discount" }
+  /** Passive: Knight, Sir, or Dame minions cast to this site require no threshold (Tournament Grounds). */
+  | { kind: "passive_knight_no_threshold" }
+  /** Genesis: destroy all equipment artifacts at adjacent squares (Bonfire). */
+  | { kind: "genesis_destroy_adjacent_artifacts" }
+  /** Genesis: each player may re-summon their best dead minion here (Boneyard). */
+  | { kind: "genesis_both_summon_from_cemetery" }
+  /** Genesis: this turn, minions with ≤2 power can be deployed to any site (Spore Spouts). */
+  | { kind: "genesis_deploy_weak_anywhere" }
+  /** Passive: site has Ward; when a friendly minion leaves here it gains Ward (Pilgrim's Shrine). */
+  | { kind: "passive_pilgrim_shrine" }
+  /** Passive: minions can't be deployed to this site or the square directly in front (No Man's Land). */
+  | { kind: "passive_no_deploy_zone" }
+  /** Passive: at end of active player's turn, if total power atop this site ≥ 5, tap + skipNextUntap (Thin Ice). */
+  | { kind: "passive_thin_ice" };
 
 export function parseSiteEffect(name: string, rulesText: string): SiteEffect | undefined {
   const t = (rulesText ?? "").toLowerCase();
@@ -405,6 +442,81 @@ export function parseSiteEffect(name: string, rulesText: string): SiteEffect | u
   // "Provides mana and threshold for everyone." (Avalon)
   if (/provides mana and threshold for everyone/.test(t))
     return { kind: "passive_shared_mana" };
+
+  // ── Tier 3 additions ────────────────────────────────────────────────────
+
+  // "Genesis → Reactivate the Genesis abilities of your nearby Deserts." (Shifting Sands)
+  if (/genesis\b.*reactivate.*genesis.*desert/.test(t))
+    return { kind: "genesis_refire_nearby_deserts" };
+
+  // "Genesis → Choose one: (A), (E), (F), (W). This site provides that permanently." (Valley of Delight)
+  if (/genesis\b.*choose one.*provides that permanently/.test(t))
+    return { kind: "genesis_choose_threshold" };
+
+  // "Genesis → Draw a spell. Discard a spell when this site is first attacked successfully." (Wizard's Den)
+  // Must come BEFORE the bare genesis_draw_spell check.
+  if (/genesis\b.*draw a spell/.test(t) && /discard a spell when this site is first attacked/.test(t))
+    return { kind: "genesis_draw_spell_and_discard" };
+
+  // "Genesis → Draw a spell." (bare draw — future-proof)
+  if (/genesis\b.*draw a spell/.test(t) && !/each other adjacent/.test(t))
+    return { kind: "genesis_draw_spell" };
+
+  // "Whenever another site is played to an adjacent square, summon a Skeleton token there." (Boulevard of Bones)
+  if (/whenever.*site is played.*adjacent.*summon.*skeleton/.test(t))
+    return { kind: "passive_skeleton_on_adjacent_site" };
+
+  // "Opponent loses 1, 3, or 7 life … destroy a nearby allied site." (Vindictive Nation)
+  if (/opponent loses.*destroy.*nearby allied site/.test(t))
+    return { kind: "passive_vindictive_nation" };
+
+  // "(1) → Gain (A), (E), (F), or (W) this turn." (Annual Fair)
+  if (/[①\(1\)]\s*→\s*gain\s*\(/.test(t) || /\(1\)\s*→\s*gain\s*\(/.test(t))
+    return { kind: "passive_annual_fair" };
+
+  // "Genesis → This turn, the next Beast cast to this site costs (1) less, ignoring threshold." (Pond)
+  if (/genesis\b.*next beast.*cost.*less/.test(t) || /genesis\b.*next.*cast.*this site.*cost.*less.*threshold/.test(t))
+    return { kind: "genesis_beast_discount" };
+
+  // "Minions atop nearby sites lose Charge." (Pebbled Paths)
+  if (/minions? atop nearby sites? lose charge/.test(t))
+    return { kind: "passive_suppress_charge_nearby" };
+
+  // "Provides (2) instead…" (City of Souls, City of Traitors)
+  if (/provides\s*\(2\)/.test(t))
+    return { kind: "passive_double_mana" };
+
+  // "Dragons cast to this site require no threshold and cost (1) less." (Dragonlord's Lair)
+  if (/dragons? cast.*require no threshold/.test(t))
+    return { kind: "passive_dragon_discount" };
+
+  // "Anyone may cast Knights, Sirs, or Dames to this site and may do so for no threshold." (Tournament Grounds)
+  if (/cast knights?.*no threshold/.test(t))
+    return { kind: "passive_knight_no_threshold" };
+
+  // "Genesis → You may destroy all Weapons and Armor nearby." (Bonfire)
+  if (/genesis\b.*destroy all weapons and armor/.test(t))
+    return { kind: "genesis_destroy_adjacent_artifacts" };
+
+  // "Genesis → Each player may summon a minion from their cemetery here." (Boneyard)
+  if (/genesis\b.*each player may summon a minion from their cemetery/.test(t))
+    return { kind: "genesis_both_summon_from_cemetery" };
+
+  // "Genesis → You can cast minions with 2 or less power to any site this turn." (Spore Spouts)
+  if (/genesis\b.*cast minions with 2 or less power to any site/.test(t))
+    return { kind: "genesis_deploy_weak_anywhere" };
+
+  // "Ward. When a minion leaves here, transfer this site's Ward to it." (Pilgrim's Shrine)
+  if (/ward.*when a minion leaves.*transfer.*ward/.test(t))
+    return { kind: "passive_pilgrim_shrine" };
+
+  // "Players can't summon minions to this site or to the one directly in front of it." (No Man's Land)
+  if (/players? can.t summon minions.*directly in front/.test(t))
+    return { kind: "passive_no_deploy_zone" };
+
+  // "At the end of your turn, if minions atop this site total 5 or more power, submerge them." (Thin Ice)
+  if (/end of your turn.*total.*or more power.*submerge/.test(t))
+    return { kind: "passive_thin_ice" };
 
   return undefined;
 }
@@ -765,7 +877,8 @@ function computeMana(grid: Grid, minions: BoardMinion[], owner: "A" | "B"): numb
     if (eff?.kind === "passive_back_row_only") {
       if (p.row !== backRow) continue; // only contributes from the back row
     }
-    mana++;
+    // passive_double_mana: counts as 2 mana (City of Souls, City of Traitors — simplified)
+    mana += (eff?.kind === "passive_double_mana") ? 2 : 1;
   }
   // passive_shared_mana: opponent's sites that provide mana to everyone (e.g. Avalon)
   const oppId = owner === "A" ? "B" : "A";
@@ -878,9 +991,11 @@ interface PlayerState {
   deadSpells:  SimCard[];
   // Per-turn tracking
   deploymentSquares:    Pos[];   // Harbinger: fixed deployment squares
-  turnAirCostSpent:     number;  // Sparkmage: air threshold of spells cast this turn
-  firstSubtypeUsed:     boolean; // Templar: first knight-type discount consumed
-  lastMinionPlayed:     BoardMinion | null; // Savior: most recently played minion this turn
+  turnAirCostSpent:       number;  // Sparkmage: air threshold of spells cast this turn
+  firstSubtypeUsed:       boolean; // Templar: first knight-type discount consumed
+  lastMinionPlayed:       BoardMinion | null; // Savior: most recently played minion this turn
+  beastDiscountAvailable: boolean; // Pond: next Beast this turn costs 1 less ignoring threshold
+  deployWeakAnywhere:     boolean; // Spore Spouts: this turn, ≤2-power minions deploy to any site
 }
 
 // ─── Misc helpers ─────────────────────────────────────────────────────────────
@@ -928,10 +1043,12 @@ function initPlayer(spec: DeckSpec, id: "A" | "B"): PlayerState {
     siteAttacks:     0,
     deadMinions:     [],
     deadSpells:      [],
-    deploymentSquares:    [],
-    turnAirCostSpent:     0,
-    firstSubtypeUsed:     false,
-    lastMinionPlayed:     null,
+    deploymentSquares:      [],
+    turnAirCostSpent:       0,
+    firstSubtypeUsed:       false,
+    lastMinionPlayed:       null,
+    beastDiscountAvailable: false,
+    deployWeakAnywhere:     false,
   };
 
   // Setup_hand: Duplicator uses 2/2 instead of 3/3
@@ -1028,7 +1145,17 @@ function chooseSiteCard(sites: SimCard[], threshold: Threshold, spellHand: SimCa
 
 function freeSiteSquares(grid: Grid, minions: BoardMinion[], owner: "A" | "B"): Pos[] {
   const minionKeys = new Set(minions.map(m => posKey(m.pos)));
-  return ownedSites(grid, owner).filter(p => !minionKeys.has(posKey(p)));
+  // passive_no_deploy_zone: block this site and the square directly in front of it
+  const blocked = new Set<string>();
+  for (const p of ownedSites(grid, owner)) {
+    if (getSquare(grid, p).site?.siteEffect?.kind === "passive_no_deploy_zone") {
+      blocked.add(posKey(p));
+      const frontDir = owner === "A" ? 1 : -1;
+      const front = { col: p.col, row: p.row + frontDir };
+      if (inBounds(front)) blocked.add(posKey(front));
+    }
+  }
+  return ownedSites(grid, owner).filter(p => !minionKeys.has(posKey(p)) && !blocked.has(posKey(p)));
 }
 
 function chooseMinionPosition(freeSites: Pos[], enemyAvatarPos: Pos): Pos {
@@ -1085,6 +1212,9 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
   const snapshots: BoardSnapshot[] = [];
   const emit = (msg: string) => { if (keepLog) log.push(msg); };
 
+  // One-shot site triggers (e.g. Wizard's Den discard fires only once per site lifetime)
+  const siteOnceTriggered = new Set<string>();
+
   // ── Effective-stat helpers (close over auras/artifacts) ──────────────────
 
   function effAtk(bm: BoardMinion): number {
@@ -1120,7 +1250,13 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
   function bHasKw(bm: BoardMinion, kw: string): boolean { return effKws(bm).includes(kw); }
   function bIsAirborne(bm: BoardMinion): boolean { return bHasKw(bm, "airborne"); }
   function bCanAttack(bm: BoardMinion): boolean {
-    return !bm.tapped && !(bm.sick && !bHasKw(bm, "charge"));
+    // passive_suppress_charge_nearby (Pebbled Paths): adjacent site nullifies Charge
+    const chargeSuppressed = cardinalNeighbors(bm.pos).some(nb => {
+      const sq = getSquare(grid, nb);
+      return sq.site?.siteEffect?.kind === "passive_suppress_charge_nearby";
+    });
+    const effectiveCharge = bHasKw(bm, "charge") && !chargeSuppressed;
+    return !bm.tapped && !(bm.sick && !effectiveCharge);
   }
 
   // ── Board queries ─────────────────────────────────────────────────────────
@@ -1579,6 +1715,108 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
           break;
         }
 
+        case "genesis_refire_nearby_deserts": {
+          // Shifting Sands: re-fire genesis_damage_nearby for each adjacent Desert you own
+          for (const nb of cardinalNeighbors(pos)) {
+            const nbSq = getSquare(grid, nb);
+            if (nbSq.owner !== active.id) continue;
+            const nbEff = nbSq.site?.siteEffect;
+            if (nbEff?.kind !== "genesis_damage_nearby") continue;
+            // Re-fire that Desert's genesis from its position
+            const desertNeighbors = cardinalNeighbors(nb).filter(p2 => getSquare(grid, p2).owner === opp.id);
+            const dTarget = [...desertNeighbors].sort(
+              (a, b) => minions.filter(m => posEq(m.pos, b)).length
+                      - minions.filter(m => posEq(m.pos, a)).length
+            )[0] ?? null;
+            if (dTarget) {
+              const victims = [...minions.filter(m => posEq(m.pos, dTarget) && m.owner === opp.id)];
+              if (victims.length > 0) {
+                emit(`T${turn} [${active.id}] ${card.name} re-fires ${nbSq.site!.name} Genesis`);
+                for (const v of victims)
+                  if (nbEff.amount >= effDef(v)) { removeMinion(v); emit(`  → ${v.card.name} destroyed`); }
+              }
+            }
+          }
+          break;
+        }
+
+        case "genesis_choose_threshold": {
+          // Valley of Delight: permanently gain the most-needed threshold element
+          const needed2 = (["water", "earth", "fire", "air"] as const).reduce((best, el) =>
+            active.threshold[el] < active.threshold[best] ? el : best
+          );
+          // Modify the placed site's elements so future computeThreshold sees it
+          const sq2 = getSquare(grid, pos);
+          if (sq2.site && !sq2.site.elements.includes(needed2)) {
+            sq2.site = { ...sq2.site, elements: [...sq2.site.elements, needed2] };
+            // Immediately recompute threshold
+            active.threshold = computeThreshold(grid, minions, active.id);
+            for (const ab of active.avatarCard.avatarAbilities ?? [])
+              if (ab.kind === "threshold_bonus") {
+                active.threshold.water += ab.water; active.threshold.earth += ab.earth;
+                active.threshold.fire  += ab.fire;  active.threshold.air   += ab.air;
+              }
+            emit(`T${turn} [${active.id}] ${card.name} Genesis: chose (${needed2[0].toUpperCase()}) permanently`);
+          }
+          break;
+        }
+
+        case "genesis_draw_spell":
+        case "genesis_draw_spell_and_discard": {
+          // Wizard's Den / generic: draw a spell
+          drawOne(active);
+          emit(`T${turn} [${active.id}] ${card.name} Genesis: draws a spell`);
+          break;
+        }
+
+        case "genesis_beast_discount": {
+          // Pond: this turn, next Beast costs 1 less ignoring threshold
+          active.beastDiscountAvailable = true;
+          emit(`T${turn} [${active.id}] ${card.name} Genesis: next Beast this turn costs ① less`);
+          break;
+        }
+
+        case "genesis_destroy_adjacent_artifacts": {
+          // Bonfire: destroy all equipment artifacts at adjacent squares
+          const neighbors3 = cardinalNeighbors(pos);
+          const destroyed2: string[] = [];
+          for (let i = artifacts.length - 1; i >= 0; i--) {
+            const art = artifacts[i];
+            if (art.effect.kind !== "equipment" || !art.attachedTo) continue;
+            if (!neighbors3.some(nb => posEq(nb, art.attachedTo!.pos))) continue;
+            destroyed2.push(art.card.name);
+            artifacts.splice(i, 1);
+          }
+          if (destroyed2.length > 0)
+            emit(`T${turn} [${active.id}] ${card.name} Genesis: destroys ${destroyed2.join(", ")}`);
+          break;
+        }
+
+        case "genesis_both_summon_from_cemetery": {
+          // Boneyard: each player re-summons their best dead minion here
+          for (const p of [active, opp]) {
+            if (p.deadMinions.length === 0) continue;
+            const best = [...p.deadMinions].sort((a, b) => minionValue(b) - minionValue(a))[0];
+            p.deadMinions = p.deadMinions.filter(c => c !== best);
+            const bmB: BoardMinion = {
+              card: best, pos, owner: p.id,
+              tapped: false, sick: true, tempDamage: 0,
+              stealthy: hasKw(best, "stealth"), skipNextUntap: false, temporary: false,
+            };
+            minions.push(bmB);
+            p.minionsDeployed++;
+            emit(`T${turn} [${p.id}] ${card.name} Genesis: re-summons ${best.name} from cemetery`);
+          }
+          break;
+        }
+
+        case "genesis_deploy_weak_anywhere": {
+          // Spore Spouts: this turn, ≤2-power minions can deploy to any site
+          active.deployWeakAnywhere = true;
+          emit(`T${turn} [${active.id}] ${card.name} Genesis: ≤2-power minions deploy anywhere this turn`);
+          break;
+        }
+
         case "genesis_banish_cemetery": {
           // Funeral Pyre: banish up to N cards from the opponent's cemetery
           // Prefer banishing minions (more impactful for Deathspeaker-type effects)
@@ -1610,6 +1848,29 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         const dmg = nbSq.site.siteEffect.amount;
         emit(`T${turn} [${active.id}] ${nbSq.site.name}: placing a nearby site costs ${dmg} life`);
         damageAvatar(active, dmg, nbSq.site.name);
+      }
+    }
+
+    // ── Boulevard of Bones: adjacent owned site summons a Skeleton token on the newly placed site ──
+    for (const nb of cardinalNeighbors(pos)) {
+      const nbSq = getSquare(grid, nb);
+      if (nbSq.owner === active.id && nbSq.site?.siteEffect?.kind === "passive_skeleton_on_adjacent_site") {
+        if (!minions.some(m => posEq(m.pos, pos))) {
+          const skelCard: SimCard = {
+            name: "Skeleton", type: "Minion",
+            attack: 1, defense: 1, life: 0,
+            waterT: 0, earthT: 0, fireT: 0, airT: 0,
+            elements: [], keywords: [], subtypes: ["undead"], rulesText: "",
+          };
+          minions.push({
+            card: skelCard, pos, owner: active.id,
+            tapped: false, sick: true, tempDamage: 0,
+            stealthy: false, skipNextUntap: false, temporary: false,
+          });
+          active.minionsDeployed++;
+          emit(`T${turn} [${active.id}] ${nbSq.site.name}: summons Skeleton at (${pos.col},${pos.row})`);
+          break; // one skeleton even if multiple Boulevard of Bones
+        }
       }
     }
   }
@@ -1694,10 +1955,10 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       }
 
       case "destroy_site": {
-        // Target the most advanced non-warded site
+        // Target the most advanced non-warded / non-shrine site
         const enemySites = ownedSites(grid, opp.id).filter(p => {
           const eff = getSquare(grid, p).site?.siteEffect;
-          return eff?.kind !== "passive_site_ward";
+          return eff?.kind !== "passive_site_ward" && eff?.kind !== "passive_pilgrim_shrine";
         });
         if (enemySites.length > 0) {
           // Target the most advanced site — farthest from opponent's avatar (= closest to ours)
@@ -1706,6 +1967,16 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
           )[0];
           const sq = getSquare(grid, target);
           const siteName = sq.site?.name ?? "enemy site";
+
+          // passive_vindictive_nation: check if any ACTIVE PLAYER site adjacent to target is Vindictive Nation
+          for (const nb of cardinalNeighbors(target)) {
+            const nbSq = getSquare(grid, nb);
+            if (nbSq.owner === opp.id && nbSq.site?.siteEffect?.kind === "passive_vindictive_nation") {
+              emit(`T${turn} [${opp.id}] ${nbSq.site.name}: loses 7 life for destroying a nearby allied site`);
+              damageAvatar(active, 7, nbSq.site.name);
+            }
+          }
+
           sq.owner = null; sq.site = undefined; sq.isRubble = true;
           opp.mana      = computeMana(grid, minions, opp.id);
           opp.threshold = computeThreshold(grid, minions, opp.id);
@@ -1801,6 +2072,39 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         }
       }
 
+      // Tier 3 site-based discounts (applied to Minions only)
+      if (card.type === "Minion") {
+        // passive_dragon_discount (Dragonlord's Lair): dragons cost 1 less, no threshold requirement
+        if (card.subtypes.includes("dragon")) {
+          for (let r = 0; r < ROWS; r++) for (let c2 = 0; c2 < COLS; c2++) {
+            const sq2 = grid[r][c2];
+            if (sq2.owner === active.id && sq2.site?.siteEffect?.kind === "passive_dragon_discount") {
+              cost = Math.max(0, cost - 1);
+              // Effectively waive threshold by checking: threshold is already satisfied if we just subtract
+              // We model this by setting card element costs to 0 for canPlay check — handled via cost reduction
+              break;
+            }
+          }
+        }
+        // passive_knight_no_threshold (Tournament Grounds): knights/sirs/dames need no threshold
+        if (card.subtypes.includes("knight")) {
+          for (let r = 0; r < ROWS; r++) for (let c2 = 0; c2 < COLS; c2++) {
+            const sq2 = grid[r][c2];
+            if (sq2.owner === active.id && sq2.site?.siteEffect?.kind === "passive_knight_no_threshold") {
+              // Reduce threshold-component of cost to 0 (model as full cost reduction)
+              const thresholdCost = card.waterT + card.earthT + card.fireT + card.airT;
+              cost = Math.max(0, cost - thresholdCost);
+              break;
+            }
+          }
+        }
+        // genesis_beast_discount (Pond): next Beast this turn costs 1 less
+        if (active.beastDiscountAvailable && card.subtypes.includes("beast")) {
+          cost = Math.max(0, cost - 1);
+          active.beastDiscountAvailable = false;
+        }
+      }
+
       active.mana -= cost;
       active.spellHand = remove(active.spellHand, card);
 
@@ -1812,6 +2116,15 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         );
         const allFree = [...freeSites];
         for (const p of freeHarbinger) if (!allFree.some(q => posEq(q, p))) allFree.push(p);
+        // genesis_deploy_weak_anywhere (Spore Spouts): ≤2-power minions can deploy to any site
+        if (active.deployWeakAnywhere && minionValue(card) <= 2) {
+          for (let r = 0; r < ROWS; r++) for (let c2 = 0; c2 < COLS; c2++) {
+            const sq2 = grid[r][c2];
+            const p2 = { col: c2, row: r };
+            if (sq2.owner !== null && !minions.some(m => posEq(m.pos, p2)) && !allFree.some(q => posEq(q, p2)))
+              allFree.push(p2);
+          }
+        }
 
         if (allFree.length === 0) { active.spellHand.push(card); active.mana += cost; break; }
         const pos = chooseMinionPosition(allFree, opp.avatarPos);
@@ -2045,6 +2358,8 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
               && effAtk(bm) + effDef(bm) >= entrySq.site.siteEffect.threshold) {
             continue;
           }
+          // Fire exit effects from the current square before moving (Pilgrim's Shrine, Briar Patch exit)
+          handleSiteExit(bm, bm.pos);
           emit(`T${turn} [${active.id}] ${bm.card.name} moves (${bm.pos.col},${bm.pos.row})→(${newPos.col},${newPos.row})`);
           bm.pos = newPos;
           // on_enemy_enter_site_damage: fire when minion steps onto opponent's site (e.g. Druid)
@@ -2123,6 +2438,20 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
               if (ab.kind === "on_site_attack_draw") {
                 for (let i = 0; i < ab.amount; i++) drawOne(active);
                 emit(`  → ${active.avatarCard.name} draws ${ab.amount} (site attack)`);
+              }
+            }
+            // genesis_draw_spell_and_discard (Wizard's Den): first time attacked, owner discards a spell
+            const atkedSq = getSquare(grid, bm.pos);
+            if (atkedSq.site?.siteEffect?.kind === "genesis_draw_spell_and_discard"
+                && !siteOnceTriggered.has(posKey(bm.pos))) {
+              siteOnceTriggered.add(posKey(bm.pos));
+              const siteOwnerP = player(atkedSq.owner!);
+              if (siteOwnerP.spellHand.length > 0) {
+                // Discard the least-valuable spell from the owner's hand
+                const toDiscard = [...siteOwnerP.spellHand]
+                  .sort((a, b) => minionValue(a) - minionValue(b))[0];
+                siteOwnerP.spellHand = remove(siteOwnerP.spellHand, toDiscard);
+                emit(`T${turn} [${atkedSq.owner}] ${atkedSq.site.name}: first attack — discards ${toDiscard.name}`);
               }
             }
           }
@@ -2299,15 +2628,24 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     return false;
   }
 
-  // Also fires on exit (Briar Patch) — only entry_damage triggers on leave
+  // Also fires on exit (Briar Patch, Pilgrim's Shrine, etc.)
   function handleSiteExit(bm: BoardMinion, exitedPos: Pos): void {
     const sq = getSquare(grid, exitedPos);
     if (!sq.site?.siteEffect) return;
     const eff = sq.site.siteEffect;
+
     if (eff.kind === "passive_entry_damage" && bm.owner !== sq.owner) {
       emit(`T${turn} [${sq.owner}] ${sq.site.name}: ${eff.amount} damage to ${bm.card.name} leaving`);
       // Damage on exit — minion is no longer on the square, so we just note it;
       // in a full model this could kill it but for simplicity we skip that edge case
+    }
+
+    // passive_pilgrim_shrine: friendly minion leaving receives Ward
+    if (eff.kind === "passive_pilgrim_shrine" && bm.owner === sq.owner) {
+      if (!bm.card.keywords.includes("ward")) {
+        bm.card = { ...bm.card, keywords: [...bm.card.keywords, "ward"] };
+        emit(`T${turn} [${sq.owner}] ${sq.site.name}: ${bm.card.name} gains Ward (shrine transfer)`);
+      }
     }
   }
 
@@ -2328,10 +2666,12 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       else                  { m.tapped = false; }
       m.sick = false;
     }
-    active.avatarTapUsed     = false;
-    active.turnAirCostSpent  = 0;
-    active.firstSubtypeUsed  = false;
-    active.lastMinionPlayed  = null;
+    active.avatarTapUsed        = false;
+    active.turnAirCostSpent     = 0;
+    active.firstSubtypeUsed     = false;
+    active.lastMinionPlayed     = null;
+    active.beastDiscountAvailable = false;
+    active.deployWeakAnywhere     = false;
 
     // Refresh mana (sites + structure artifacts)
     active.mana      = computeMana(grid, minions, active.id);
@@ -2344,6 +2684,20 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         active.threshold.water += ab.water; active.threshold.earth += ab.earth;
         active.threshold.fire  += ab.fire;  active.threshold.air   += ab.air;
       }
+
+    // passive_annual_fair: if we own one and have mana to spare, spend 1 for the most-needed threshold
+    for (let r = 0; r < ROWS; r++) for (let c2 = 0; c2 < COLS; c2++) {
+      const sq = grid[r][c2];
+      if (sq.owner === active.id && sq.site?.siteEffect?.kind === "passive_annual_fair" && active.mana >= 1) {
+        const leastEl = (["water", "earth", "fire", "air"] as const).reduce((best, el) =>
+          active.threshold[el] < active.threshold[best] ? el : best
+        );
+        active.mana--;
+        active.threshold[leastEl]++;
+        emit(`T${turn} [${active.id}] ${sq.site.name}: spends ① for (${leastEl[0].toUpperCase()}) threshold`);
+        break; // one Annual Fair activation per turn
+      }
+    }
 
     // Start-of-turn avatar abilities
     for (const ab of active.avatarCard.avatarAbilities ?? []) {
@@ -2518,6 +2872,22 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
 
     // Avatar action (combat avatars that didn't tap for a site attack independently)
     avatarActionStep(active);
+
+    // passive_thin_ice: if total power of minions atop this site ≥ 5, tap + skipNextUntap
+    for (let r = 0; r < ROWS; r++) for (let c2 = 0; c2 < COLS; c2++) {
+      const sq = grid[r][c2];
+      if (sq.site?.siteEffect?.kind !== "passive_thin_ice") continue;
+      const icePos = { col: c2, row: r };
+      const onIce = minions.filter(m => posEq(m.pos, icePos));
+      const totalPower = onIce.reduce((sum, m) => sum + effAtk(m) + effDef(m), 0);
+      if (totalPower >= 5) {
+        for (const m of onIce) {
+          m.tapped = true;
+          m.skipNextUntap = true;
+          emit(`T${turn} [${sq.owner}] ${sq.site.name}: ${m.card.name} submerged (power overload ${totalPower})`);
+        }
+      }
+    }
 
     // End of turn: clear temp damage and temporary buff auras
     for (const m of minions) m.tempDamage = 0;
