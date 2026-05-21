@@ -209,7 +209,32 @@ export type SiteEffect =
   /** Genesis: gain 1 mana per adjacent site that has an enemy minion atop it (Beacon). */
   | { kind: "genesis_mana_per_contested_neighbor" }
   /** Passive: only provides mana and threshold while in the owner's back row. */
-  | { kind: "passive_back_row_only" };
+  | { kind: "passive_back_row_only" }
+  // ── Tier 2 additions ────────────────────────────────────────────────────
+  /** Genesis: look at bottom N spells; move the best-value one to the top (Kelp Cavern). */
+  | { kind: "genesis_bottom_to_top";   amount: number }
+  /** Genesis: look at top N atlas sites; bottom all but 1 (Crossroads). */
+  | { kind: "genesis_atlas_filter";    look: number; keep: number }
+  /** Genesis: draw N atlas/site cards if you own fewer sites than the opponent (Primordial Spring). */
+  | { kind: "genesis_draw_sites_if_behind"; amount: number }
+  /** Genesis: draw 1 spell per adjacent Leyline Henge you own (Leyline Henge). */
+  | { kind: "genesis_draw_per_adjacent_copy" }
+  /** Genesis: banish up to N cards from a cemetery (Funeral Pyre). */
+  | { kind: "genesis_banish_cemetery"; amount: number }
+  /** Passive: enemy minions on adjacent sites lose Stealth permanently (Watchtower). */
+  | { kind: "passive_strip_adjacent_stealth" }
+  /** Passive: site has Ward — immune to spell effects targeting sites (Blessed Well / Village). */
+  | { kind: "passive_site_ward" }
+  /** Passive: the first attack leaving this site each turn cannot be defended (Dread Thicket). */
+  | { kind: "passive_first_attack_undefendable" }
+  /** Passive: minions can't enter if another minion is already occupying it (Mountain Pass). */
+  | { kind: "passive_max_one_occupant" }
+  /** Passive: minions whose ATK+DEF ≥ threshold can't enter (Gnome Hollows). */
+  | { kind: "passive_power_entry_limit"; threshold: number }
+  /** Passive: all healing is halved rounded down (River of Blood). */
+  | { kind: "passive_halve_healing" }
+  /** Passive: both players gain mana and threshold from this site (Avalon). */
+  | { kind: "passive_shared_mana" };
 
 export function parseSiteEffect(name: string, rulesText: string): SiteEffect | undefined {
   const t = (rulesText ?? "").toLowerCase();
@@ -319,6 +344,67 @@ export function parseSiteEffect(name: string, rulesText: string): SiteEffect | u
   // "Only provides mana and threshold while in your back row." (Caerleon, Glastonbury Tor, Joyous Garde)
   if (/only provides mana.*back row/.test(t))
     return { kind: "passive_back_row_only" };
+
+  // ── Tier 2 additions ────────────────────────────────────────────────────
+
+  // "Genesis → Look at your bottom N spells. Put one on top." (Kelp Cavern)
+  const bottomTop = t.match(/genesis\b.*look at your bottom\s+(\w+)\s+spells?.*put one on top/);
+  if (bottomTop) {
+    const wordNum2: Record<string, number> = { one: 1, two: 2, three: 3, four: 4 };
+    return { kind: "genesis_bottom_to_top", amount: wordNum2[bottomTop[1]] ?? parseInt(bottomTop[1]) ?? 3 };
+  }
+
+  // "Genesis → Look at your next N sites. Put M on the bottom of your atlas." (Crossroads)
+  const atlasFilter = t.match(/genesis\b.*look at your next\s+(\w+)\s+sites?.*put\s+(\w+)\s+on the bottom/);
+  if (atlasFilter) {
+    const wn: Record<string, number> = { one: 1, two: 2, three: 3, four: 4 };
+    const look = wn[atlasFilter[1]] ?? parseInt(atlasFilter[1]) ?? 4;
+    const bottom = wn[atlasFilter[2]] ?? parseInt(atlasFilter[2]) ?? 3;
+    return { kind: "genesis_atlas_filter", look, keep: look - bottom };
+  }
+
+  // "Genesis → If you control fewer sites than any opponent, draw three sites." (Primordial Spring)
+  if (/genesis\b.*fewer sites.*draw.*sites?/.test(t))
+    return { kind: "genesis_draw_sites_if_behind", amount: 3 };
+
+  // "Genesis → Draw a spell for each other adjacent Leyline Henge." (Leyline Henge)
+  if (/genesis\b.*draw a spell for each other adjacent/.test(t))
+    return { kind: "genesis_draw_per_adjacent_copy" };
+
+  // "Genesis → Banish up to N cards from one cemetery." (Funeral Pyre)
+  const pyreBanish = t.match(/genesis\b.*banish up to\s+(\w+)\s+cards?\s+from.*cemetery/);
+  if (pyreBanish) {
+    const wn2: Record<string, number> = { one: 1, two: 2, three: 3, four: 4 };
+    return { kind: "genesis_banish_cemetery", amount: wn2[pyreBanish[1]] ?? parseInt(pyreBanish[1]) ?? 3 };
+  }
+
+  // "Enemy units atop nearby sites permanently lose Stealth." (Watchtower)
+  if (/enemy units?\s+atop nearby sites?\s+.*lose stealth/.test(t))
+    return { kind: "passive_strip_adjacent_stealth" };
+
+  // "Ward" alone on a site (Blessed Well, Blessed Village)
+  if (/^ward$/.test(t.trim()))
+    return { kind: "passive_site_ward" };
+
+  // "The first attack out of this site each turn can't be defended." (Dread Thicket)
+  if (/first attack.*this site.*can.t be defended/.test(t))
+    return { kind: "passive_first_attack_undefendable" };
+
+  // "Minions can't enter this site … if there's already a minion atop." (Mountain Pass)
+  if (/minions? can.t enter.*already a minion/.test(t))
+    return { kind: "passive_max_one_occupant" };
+
+  // "Units with N or more power can't enter this site." (Gnome Hollows)
+  const powerLimit = t.match(/units? with\s+(\d+)\s+or more power can.t enter/);
+  if (powerLimit) return { kind: "passive_power_entry_limit", threshold: parseInt(powerLimit[1]) };
+
+  // "All healing is halved, rounded down." (River of Blood)
+  if (/all healing is halved/.test(t))
+    return { kind: "passive_halve_healing" };
+
+  // "Provides mana and threshold for everyone." (Avalon)
+  if (/provides mana and threshold for everyone/.test(t))
+    return { kind: "passive_shared_mana" };
 
   return undefined;
 }
@@ -681,6 +767,11 @@ function computeMana(grid: Grid, minions: BoardMinion[], owner: "A" | "B"): numb
     }
     mana++;
   }
+  // passive_shared_mana: opponent's sites that provide mana to everyone (e.g. Avalon)
+  const oppId = owner === "A" ? "B" : "A";
+  for (const p of ownedSites(grid, oppId)) {
+    if (getSquare(grid, p).site?.siteEffect?.kind === "passive_shared_mana") mana++;
+  }
   return mana;
 }
 
@@ -694,6 +785,18 @@ function computeThreshold(grid: Grid, minions: BoardMinion[], owner: "A" | "B"):
     if (eff?.kind === "passive_back_row_only" && p.row !== backRow) continue;
     if (eff?.kind === "passive_no_mana_if_occupied" && minions.some(m => posEq(m.pos, p))) continue;
     for (const el of sq.site?.elements ?? []) {
+      if      (el === "water") th.water++;
+      else if (el === "earth") th.earth++;
+      else if (el === "fire")  th.fire++;
+      else if (el === "air")   th.air++;
+    }
+  }
+  // passive_shared_mana: opponent's sites that provide threshold to everyone (e.g. Avalon)
+  const oppId = owner === "A" ? "B" : "A";
+  for (const p of ownedSites(grid, oppId)) {
+    const sq = getSquare(grid, p);
+    if (sq.site?.siteEffect?.kind !== "passive_shared_mana") continue;
+    for (const el of sq.site.elements) {
       if      (el === "water") th.water++;
       else if (el === "earth") th.earth++;
       else if (el === "fire")  th.fire++;
@@ -1117,6 +1220,21 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     }
   }
 
+  /** Apply healing to a player, halving if any board site has passive_halve_healing.
+   *  Returns the actual amount healed. */
+  function applyHeal(target: PlayerState, amount: number): number {
+    if (amount <= 0) return 0;
+    let halved = false;
+    for (let r = 0; r < ROWS && !halved; r++)
+      for (let c2 = 0; c2 < COLS && !halved; c2++)
+        if (grid[r][c2].site?.siteEffect?.kind === "passive_halve_healing") halved = true;
+    if (halved) amount = Math.floor(amount / 2);
+    if (amount <= 0) return 0;
+    const maxLife = target.avatarCard.life > 0 ? target.avatarCard.life : 20;
+    target.avatarLife = Math.min(maxLife, target.avatarLife + amount);
+    return amount;
+  }
+
   // ── Board snapshot ────────────────────────────────────────────────────────
 
   function captureSnapshot(currentTurn: number, active: "A" | "B"): BoardSnapshot {
@@ -1301,9 +1419,8 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         }
 
         case "genesis_heal": {
-          const maxLife = active.avatarCard.life > 0 ? active.avatarCard.life : 20;
-          active.avatarLife = Math.min(maxLife, active.avatarLife + siteEff.amount);
-          emit(`T${turn} [${active.id}] ${card.name} Genesis: heals ${siteEff.amount}`);
+          const healed = applyHeal(active, siteEff.amount);
+          if (healed > 0) emit(`T${turn} [${active.id}] ${card.name} Genesis: heals ${healed}`);
           break;
         }
 
@@ -1352,9 +1469,8 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
           const banished = active.deadMinions.length;
           if (banished > 0) {
             active.deadMinions = [];
-            const maxLife2 = active.avatarCard.life > 0 ? active.avatarCard.life : 20;
-            active.avatarLife = Math.min(maxLife2, active.avatarLife + banished);
-            emit(`T${turn} [${active.id}] ${card.name} Genesis: banished ${banished} dead minions, healed ${banished} life`);
+            const healed2 = applyHeal(active, banished);
+            emit(`T${turn} [${active.id}] ${card.name} Genesis: banished ${banished} dead minions, healed ${healed2} life`);
           }
           break;
         }
@@ -1393,6 +1509,93 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
             active.mana += contested.length;
             emit(`T${turn} [${active.id}] ${card.name} Genesis: +${contested.length} mana (${contested.length} contested neighbor(s))`);
           }
+          break;
+        }
+
+        case "genesis_bottom_to_top": {
+          // Kelp Cavern: look at bottom N spells, put the highest-value one on top
+          if (active.spellDeck.length > 0) {
+            const look = Math.min(siteEff.amount, active.spellDeck.length);
+            const bottomSlice = active.spellDeck.slice(0, look); // index 0 = bottom
+            const best = [...bottomSlice].sort((a, b) => minionValue(b) - minionValue(a))[0];
+            const idx = active.spellDeck.indexOf(best);
+            active.spellDeck.splice(idx, 1);
+            active.spellDeck.push(best); // push to top (end of array)
+            emit(`T${turn} [${active.id}] ${card.name} Genesis: moved ${best.name} from bottom to top`);
+          }
+          break;
+        }
+
+        case "genesis_atlas_filter": {
+          // Crossroads: look at top N atlas sites; keep the most needed, bottom the rest
+          if (active.atlasDeck.length > 0) {
+            const look = Math.min(siteEff.look, active.atlasDeck.length);
+            const topSlice = active.atlasDeck.slice(active.atlasDeck.length - look);
+            // Score by how many unmet threshold types each site has
+            const scored = [...topSlice].sort((a, b) => {
+              const sa = a.elements.reduce((n, el) =>
+                n + (active.threshold[el as keyof Threshold] < 1 ? 1 : 0), 0);
+              const sb = b.elements.reduce((n, el) =>
+                n + (active.threshold[el as keyof Threshold] < 1 ? 1 : 0), 0);
+              return sb - sa;
+            });
+            const keep    = Math.min(siteEff.keep, scored.length);
+            const keepers = scored.slice(0, keep);
+            const bottomed = scored.slice(keep);
+            // Remove the whole slice from the deck, then re-insert
+            active.atlasDeck.splice(active.atlasDeck.length - look, look);
+            for (const c of bottomed) active.atlasDeck.unshift(c); // bottom
+            for (const c of keepers)  active.atlasDeck.push(c);   // top
+            emit(`T${turn} [${active.id}] ${card.name} Genesis: atlas filter (kept ${keepers.length}, bottomed ${bottomed.length})`);
+          }
+          break;
+        }
+
+        case "genesis_draw_sites_if_behind": {
+          // Primordial Spring: draw N sites if you own fewer sites than the opponent
+          const ownSiteCount  = countSites(grid, active.id);
+          const oppSiteCount  = countSites(grid, opp.id);
+          if (ownSiteCount < oppSiteCount) {
+            let drawn = 0;
+            for (let i = 0; i < siteEff.amount && active.atlasDeck.length > 0; i++) {
+              active.atlasHand.push(active.atlasDeck.pop()!);
+              drawn++;
+            }
+            if (drawn > 0)
+              emit(`T${turn} [${active.id}] ${card.name} Genesis: drew ${drawn} site(s) (behind ${ownSiteCount} vs ${oppSiteCount})`);
+          }
+          break;
+        }
+
+        case "genesis_draw_per_adjacent_copy": {
+          // Leyline Henge: draw 1 spell per adjacent site with the same name
+          const adjacentCopies = cardinalNeighbors(pos).filter(
+            nb => getSquare(grid, nb).owner === active.id && getSquare(grid, nb).site?.name === card.name
+          ).length;
+          if (adjacentCopies > 0) {
+            for (let i = 0; i < adjacentCopies; i++) drawOne(active);
+            emit(`T${turn} [${active.id}] ${card.name} Genesis: draws ${adjacentCopies} spell(s) (adjacent copies)`);
+          }
+          break;
+        }
+
+        case "genesis_banish_cemetery": {
+          // Funeral Pyre: banish up to N cards from the opponent's cemetery
+          // Prefer banishing minions (more impactful for Deathspeaker-type effects)
+          let banishedCount = 0;
+          const toBanishM = Math.min(siteEff.amount, opp.deadMinions.length);
+          if (toBanishM > 0) {
+            opp.deadMinions.splice(opp.deadMinions.length - toBanishM, toBanishM);
+            banishedCount += toBanishM;
+          }
+          const remaining = siteEff.amount - toBanishM;
+          if (remaining > 0 && opp.deadSpells.length > 0) {
+            const toBanishS = Math.min(remaining, opp.deadSpells.length);
+            opp.deadSpells.splice(opp.deadSpells.length - toBanishS, toBanishS);
+            banishedCount += toBanishS;
+          }
+          if (banishedCount > 0)
+            emit(`T${turn} [${active.id}] ${card.name} Genesis: banished ${banishedCount} card(s) from opponent cemetery`);
           break;
         }
 
@@ -1491,7 +1694,11 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       }
 
       case "destroy_site": {
-        const enemySites = ownedSites(grid, opp.id);
+        // Target the most advanced non-warded site
+        const enemySites = ownedSites(grid, opp.id).filter(p => {
+          const eff = getSquare(grid, p).site?.siteEffect;
+          return eff?.kind !== "passive_site_ward";
+        });
         if (enemySites.length > 0) {
           // Target the most advanced site — farthest from opponent's avatar (= closest to ours)
           const target = [...enemySites].sort(
@@ -1504,6 +1711,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
           opp.threshold = computeThreshold(grid, minions, opp.id);
           emit(`T${turn} [${active.id}] casts ${cardName}: destroys ${siteName} at (${target.col},${target.row})`);
         } else {
+          // All sites warded or none exist — fall through to avatar damage
           damageAvatar(opp, Math.max(1, cost), cardName);
         }
         break;
@@ -1755,6 +1963,9 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
   function combatStep(active: PlayerState): void {
     const opp = opponent(active.id);
 
+    // Tracks which passive_first_attack_undefendable sites have fired this turn (by posKey)
+    const usedFirstAttack = new Set<string>();
+
     const actors = friendlyMinions(active.id)
       .filter(bCanAttack)
       .sort((a, b) => effAtk(b) - effAtk(a));
@@ -1814,10 +2025,26 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         targetPos = candidates[0].pos;
       }
 
+      // Capture origin position before any move (for passive_first_attack_undefendable)
+      const originPos = { ...bm.pos };
+
       // Move 1 step toward target
       if (!posEq(bm.pos, targetPos)) {
         const newPos = airborne ? diagonalStep(bm.pos, targetPos) : cardinalStep(bm.pos, targetPos);
         if (inBounds(newPos) && !posEq(newPos, bm.pos)) {
+          // ── Entry restriction passives ───────────────────────────────────
+          const entrySq = getSquare(grid, newPos);
+          // passive_max_one_occupant: blocked if another minion already occupies the square
+          if (entrySq.site?.siteEffect?.kind === "passive_max_one_occupant"
+              && minions.some(m => posEq(m.pos, newPos) && m !== bm)) {
+            // Can't enter; skip this minion's action this turn
+            continue;
+          }
+          // passive_power_entry_limit: blocked if minion's ATK+DEF >= threshold
+          if (entrySq.site?.siteEffect?.kind === "passive_power_entry_limit"
+              && effAtk(bm) + effDef(bm) >= entrySq.site.siteEffect.threshold) {
+            continue;
+          }
           emit(`T${turn} [${active.id}] ${bm.card.name} moves (${bm.pos.col},${bm.pos.row})→(${newPos.col},${newPos.row})`);
           bm.pos = newPos;
           // on_enemy_enter_site_damage: fire when minion steps onto opponent's site (e.g. Druid)
@@ -1854,10 +2081,20 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       } else {
         const sq = getSquare(grid, bm.pos);
         if (sq.owner === opp.id) {
-          // Check for Defend
-          const defenders = friendlyMinions(opp.id).filter(
-            d => !d.tapped && cardinalDist(d.pos, bm.pos) <= 1 && canTarget(bm, d)
-          );
+          // passive_first_attack_undefendable: first attack from the origin site ignores defenders
+          const originSq = getSquare(grid, originPos);
+          const firstAttackBypass =
+            originSq.owner === active.id &&
+            originSq.site?.siteEffect?.kind === "passive_first_attack_undefendable" &&
+            !usedFirstAttack.has(posKey(originPos));
+          if (firstAttackBypass) usedFirstAttack.add(posKey(originPos));
+
+          // Check for Defend (skipped if first_attack_undefendable fires)
+          const defenders = firstAttackBypass
+            ? []
+            : friendlyMinions(opp.id).filter(
+                d => !d.tapped && cardinalDist(d.pos, bm.pos) <= 1 && canTarget(bm, d)
+              );
           if (defenders.length > 0) {
             const def = [...defenders].sort(
               (a, b) => cardinalDist(a.pos, bm.pos) - cardinalDist(b.pos, bm.pos)
@@ -1874,6 +2111,8 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
             if (attackerDies) { removeMinion(bm);  emit(`  → ${bm.card.name} destroyed by defender`); }
           } else {
             // Undefended site — deal damage to avatar
+            if (firstAttackBypass)
+              emit(`T${turn} [${active.id}] ${originSq.site?.name} first-attack bypass — defenders ignored`);
             if (bm.stealthy) bm.stealthy = false;
             bm.tapped = true;
             active.siteAttacks++;
@@ -2045,6 +2284,18 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     }
 
     void siteOwner;
+
+    // passive_strip_adjacent_stealth: when a minion enters any site, check if a nearby
+    // enemy-owned site has a Watchtower-style passive that strips stealth
+    for (const nb of cardinalNeighbors(bm.pos)) {
+      const nbSq = getSquare(grid, nb);
+      if (nbSq.owner !== bm.owner && nbSq.site?.siteEffect?.kind === "passive_strip_adjacent_stealth" && bm.stealthy) {
+        bm.stealthy = false;
+        emit(`T${turn} [${nbSq.owner}] ${nbSq.site.name}: ${bm.card.name} loses Stealth`);
+        break;
+      }
+    }
+
     return false;
   }
 
@@ -2106,9 +2357,8 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       } else if (ab.grant === "damage_enemy") {
         damageAvatar(opponent(active.id), ab.amount, active.avatarCard.name);
       } else if (ab.grant === "heal") {
-        const maxLife = active.avatarCard.life > 0 ? active.avatarCard.life : 20;
-        active.avatarLife = Math.min(maxLife, active.avatarLife + ab.amount);
-        emit(`T${turn} [${active.id}] ${active.avatarCard.name} heals ${ab.amount} (start of turn)`);
+        const healed3 = applyHeal(active, ab.amount);
+        if (healed3 > 0) emit(`T${turn} [${active.id}] ${active.avatarCard.name} heals ${healed3} (start of turn)`);
       }
     }
 
