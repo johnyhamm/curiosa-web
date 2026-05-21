@@ -1053,7 +1053,8 @@ interface PlayerState {
   avatarCard: SimCard;
   avatarLife: number;
   avatarPos: Pos;
-  deathsDoor: boolean;
+  deathsDoor:             boolean;
+  deathsDoorFiredThisTurn: boolean; // immune to damage for the rest of the turn Death's Door triggered
   atlasDeck:  SimCard[];
   spellDeck:  SimCard[];
   atlasHand:  SimCard[];
@@ -1108,7 +1109,8 @@ function initPlayer(spec: DeckSpec, id: "A" | "B"): PlayerState {
     avatarCard:     spec.avatar,
     avatarLife:     spec.avatar.life > 0 ? spec.avatar.life : 20,
     avatarPos:      { col: AVATAR_COL, row: id === "A" ? 0 : 3 },
-    deathsDoor:     false,
+    deathsDoor:              false,
+    deathsDoorFiredThisTurn: false,
     atlasDeck:      atlasDeckInit,
     spellDeck:      spellDeckInit,
     atlasHand:      [],
@@ -1356,10 +1358,12 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       if (auras[i].attachedTo === bm) auras.splice(i, 1);
     for (let i = artifacts.length - 1; i >= 0; i--)
       if (artifacts[i].attachedTo === bm) artifacts.splice(i, 1);
-    // Undying: return card to owner's hand instead of dying permanently
+    // Undying: return card to owner's hand instead of dying permanently.
+    // Rule: Undying is a one-shot effect — strip the keyword so the card doesn't re-enter immortal.
     if (hasUndying) {
-      player(bm.owner).spellHand.push(bm.card);
-      emit(`  → ${bm.card.name} returns to hand (Undying)`);
+      const returnedCard = { ...bm.card, keywords: bm.card.keywords.filter(k => k !== "undying") };
+      player(bm.owner).spellHand.push(returnedCard);
+      emit(`  → ${bm.card.name} returns to hand (Undying — keyword consumed)`);
     } else {
       // Normal death — card goes to cemetery
       player(bm.owner).deadMinions.push(bm.card);
@@ -1400,9 +1404,11 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
   interface FightResult { attackerDies: boolean; defenderDies: boolean; }
 
   function resolveFight(atk: BoardMinion, def: BoardMinion): FightResult {
+    // Rule: Lethal requires actual damage (>0 attack) to trigger.
+    // A 0-attack Lethal unit deals 0 damage and should NOT kill the defender.
     return {
-      attackerDies: def.card.attack >= effDef(atk) || bHasKw(def, "lethal"),
-      defenderDies: effAtk(atk)     >= effDef(def) || bHasKw(atk, "lethal"),
+      attackerDies: def.card.attack >= effDef(atk) || (def.card.attack > 0 && bHasKw(def, "lethal")),
+      defenderDies: effAtk(atk)     >= effDef(def) || (effAtk(atk) > 0  && bHasKw(atk, "lethal")),
     };
   }
 
@@ -1423,6 +1429,8 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
 
   function damageAvatar(target: PlayerState, amount: number, source: string): void {
     if (amount <= 0) return;
+    // Rule: "immune to damage for the rest of the turn Death's Door was triggered."
+    if (target.deathsDoor && target.deathsDoorFiredThisTurn) return;
     // damage_reduction ability (e.g. Ironclad — "Takes 2 less damage")
     for (const ab of target.avatarCard.avatarAbilities ?? [])
       if (ab.kind === "damage_reduction") amount = Math.max(0, amount - ab.amount);
@@ -1431,6 +1439,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     emit(`  → ${source} deals ${amount} to ${target.avatarCard.name} (${Math.max(0, target.avatarLife)} life)`);
     if (target.avatarLife <= 0 && !target.deathsDoor) {
       target.deathsDoor = true;
+      target.deathsDoorFiredThisTurn = true;
       target.avatarLife = 1;
       emit(`  → ${target.avatarCard.name} is at Death's Door!`);
     }
@@ -1440,6 +1449,8 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
    *  Returns the actual amount healed. */
   function applyHeal(target: PlayerState, amount: number): number {
     if (amount <= 0) return 0;
+    // Rule: "when an Avatar's life is reduced to 0, they can no longer gain life."
+    if (target.deathsDoor) return 0;
     let halved = false;
     for (let r = 0; r < ROWS && !halved; r++)
       for (let c2 = 0; c2 < COLS && !halved; c2++)
@@ -1957,47 +1968,79 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
 
   // ── Spell resolution ──────────────────────────────────────────────────────
 
+  /**
+   * Pick the best spell target from visible enemies.
+   * Rule (Ward): Ward is consumed ("popped") when the spell would first target
+   * the unit — the effect doesn't resolve but Ward is removed.
+   * Returns null if Ward was popped (caller should skip the effect) or if no
+   * targets exist.
+   */
+  function pickSpellTarget(
+    candidates: BoardMinion[],
+    sorter: (a: BoardMinion, b: BoardMinion) => number
+  ): BoardMinion | null {
+    if (candidates.length === 0) return null;
+    const nonWarded = candidates.filter(m => !bHasKw(m, "ward"));
+    if (nonWarded.length > 0) return [...nonWarded].sort(sorter)[0];
+    // Only warded targets: pop ward on the highest-value one, skip effect
+    const warded = [...candidates].sort(sorter)[0];
+    warded.card = { ...warded.card, keywords: warded.card.keywords.filter(k => k !== "ward") };
+    emit(`  → Ward on ${warded.card.name} popped — spell countered`);
+    return null;
+  }
+
   function resolveSpellEffect(active: PlayerState, opp: PlayerState, effect: SpellEffect, cost: number, cardName: string): void {
     switch (effect.kind) {
 
       case "destroy": {
-        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
-        if (targets.length > 0) {
-          // Destroy the highest-value target
-          const victim = [...targets].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+        const candidates = enemyMinions(active.id).filter(m => !m.stealthy);
+        const victim = pickSpellTarget(candidates, (a, b) => minionValue(b.card) - minionValue(a.card));
+        if (victim) {
           removeMinion(victim);
           emit(`T${turn} [${active.id}] casts ${cardName}: destroys ${victim.card.name}`);
-        } else {
+        } else if (candidates.length === 0) {
           damageAvatar(opp, Math.max(1, cost), cardName);
         }
         break;
       }
 
       case "damage": {
-        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
-        if (targets.length > 0) {
-          // Prefer killable; otherwise pick weakest
-          const killable = targets.filter(t => effect.amount >= effDef(t));
-          const victim = (killable.length > 0 ? killable : targets)
-            .sort((a, b) => minionValue(a.card) - minionValue(b.card))[0];
+        const candidates = enemyMinions(active.id).filter(m => !m.stealthy);
+        // Prefer killable targets, otherwise weakest; Ward-aware via pickSpellTarget
+        const killable = candidates.filter(t => !bHasKw(t, "ward") && effect.amount >= effDef(t));
+        const sorter = killable.length > 0
+          ? (a: BoardMinion, b: BoardMinion) => minionValue(a.card) - minionValue(b.card)
+          : (a: BoardMinion, b: BoardMinion) => minionValue(a.card) - minionValue(b.card);
+        const victim = pickSpellTarget(candidates, sorter);
+        if (victim) {
           emit(`T${turn} [${active.id}] casts ${cardName}: ${effect.amount} damage to ${victim.card.name}`);
           if (effect.amount >= effDef(victim)) {
             removeMinion(victim);
             emit(`  → ${victim.card.name} destroyed`);
           }
-        } else {
+        } else if (candidates.length === 0) {
           damageAvatar(opp, effect.amount, cardName);
         }
         break;
       }
 
       case "damage_all": {
-        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
+        // Ward: pops per-unit, protects only that unit from this AoE
+        const allEnemies = enemyMinions(active.id).filter(m => !m.stealthy);
+        const targets: BoardMinion[] = [];
+        for (const m of allEnemies) {
+          if (bHasKw(m, "ward")) {
+            m.card = { ...m.card, keywords: m.card.keywords.filter(k => k !== "ward") };
+            emit(`  → Ward on ${m.card.name} popped`);
+          } else {
+            targets.push(m);
+          }
+        }
         emit(`T${turn} [${active.id}] casts ${cardName}: ${effect.amount} damage to all enemies`);
-        for (const t of [...targets]) {  // copy — list mutates as minions die
+        for (const t of [...targets]) {
           if (effect.amount >= effDef(t)) { removeMinion(t); emit(`  → ${t.card.name} destroyed`); }
         }
-        if (targets.length === 0) damageAvatar(opp, effect.amount, cardName);
+        if (allEnemies.length === 0) damageAvatar(opp, effect.amount, cardName);
         break;
       }
 
@@ -2024,9 +2067,11 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       }
 
       case "bounce": {
-        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
-        if (targets.length > 0) {
-          const victim = [...targets].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+        const victim = pickSpellTarget(
+          enemyMinions(active.id).filter(m => !m.stealthy),
+          (a, b) => minionValue(b.card) - minionValue(a.card)
+        );
+        if (victim) {
           removeMinion(victim);
           opp.spellHand.push(victim.card);
           emit(`T${turn} [${active.id}] casts ${cardName}: bounces ${victim.card.name} to hand`);
@@ -2069,9 +2114,11 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       }
 
       case "steal": {
-        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
-        if (targets.length > 0) {
-          const victim = [...targets].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+        const victim = pickSpellTarget(
+          enemyMinions(active.id).filter(m => !m.stealthy),
+          (a, b) => minionValue(b.card) - minionValue(a.card)
+        );
+        if (victim) {
           victim.owner = active.id;
           victim.tapped = true; victim.sick = true; // stolen minion is sick this turn
           emit(`T${turn} [${active.id}] casts ${cardName}: steals ${victim.card.name}`);
@@ -2080,10 +2127,11 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       }
 
       case "exhaust": {
-        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward") && !m.tapped);
-        if (targets.length > 0) {
-          // Exhaust the most dangerous untapped enemy
-          const victim = [...targets].sort((a, b) => effAtk(b) - effAtk(a))[0];
+        const victim = pickSpellTarget(
+          enemyMinions(active.id).filter(m => !m.stealthy && !m.tapped),
+          (a, b) => effAtk(b) - effAtk(a)
+        );
+        if (victim) {
           victim.tapped = true;
           emit(`T${turn} [${active.id}] casts ${cardName}: exhausts ${victim.card.name}`);
         }
@@ -2091,9 +2139,18 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       }
 
       case "exhaust_all": {
-        const targets = enemyMinions(active.id).filter(m => !m.tapped);
-        for (const t of targets) t.tapped = true;
-        emit(`T${turn} [${active.id}] casts ${cardName}: exhausts all ${targets.length} enemy minions`);
+        // Ward: pop per-unit, protect only that unit from exhaustion
+        let exhausted = 0;
+        for (const m of enemyMinions(active.id).filter(e => !e.tapped)) {
+          if (bHasKw(m, "ward")) {
+            m.card = { ...m.card, keywords: m.card.keywords.filter(k => k !== "ward") };
+            emit(`  → Ward on ${m.card.name} popped`);
+          } else {
+            m.tapped = true;
+            exhausted++;
+          }
+        }
+        emit(`T${turn} [${active.id}] casts ${cardName}: exhausts ${exhausted} enemy minion(s)`);
         break;
       }
 
@@ -2120,34 +2177,42 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       }
 
       case "bounce_all": {
-        // Return all non-stealthy, non-warded enemy minions to opponent's hand
-        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
-        for (const t of [...targets]) {
-          opp.spellHand.push(t.card);
-          const idx = minions.indexOf(t);
-          if (idx !== -1) minions.splice(idx, 1);
-          for (let i = auras.length - 1; i >= 0; i--)
-            if (auras[i].attachedTo === t) auras.splice(i, 1);
-          for (let i = artifacts.length - 1; i >= 0; i--)
-            if (artifacts[i].attachedTo === t) artifacts.splice(i, 1);
+        // Ward: pop per-unit, protect only that unit from being bounced
+        let bounced = 0;
+        for (const t of [...enemyMinions(active.id).filter(m => !m.stealthy)]) {
+          if (bHasKw(t, "ward")) {
+            t.card = { ...t.card, keywords: t.card.keywords.filter(k => k !== "ward") };
+            emit(`  → Ward on ${t.card.name} popped`);
+          } else {
+            opp.spellHand.push(t.card);
+            const idx = minions.indexOf(t);
+            if (idx !== -1) minions.splice(idx, 1);
+            for (let i = auras.length - 1; i >= 0; i--)
+              if (auras[i].attachedTo === t) auras.splice(i, 1);
+            for (let i = artifacts.length - 1; i >= 0; i--)
+              if (artifacts[i].attachedTo === t) artifacts.splice(i, 1);
+            bounced++;
+          }
         }
-        emit(`T${turn} [${active.id}] casts ${cardName}: bounces ${targets.length} enemy minion(s) to hand`);
+        emit(`T${turn} [${active.id}] casts ${cardName}: bounces ${bounced} enemy minion(s) to hand`);
         break;
       }
 
       case "banish": {
         // Remove from game without touching the cemetery or triggering on_friendly_death
-        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
-        if (targets.length > 0) {
-          const victim = [...targets].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
-          const idx = minions.indexOf(victim);
+        const banishVictim = pickSpellTarget(
+          enemyMinions(active.id).filter(m => !m.stealthy),
+          (a, b) => minionValue(b.card) - minionValue(a.card)
+        );
+        if (banishVictim) {
+          const idx = minions.indexOf(banishVictim);
           if (idx !== -1) minions.splice(idx, 1);
           for (let i = auras.length - 1; i >= 0; i--)
-            if (auras[i].attachedTo === victim) auras.splice(i, 1);
+            if (auras[i].attachedTo === banishVictim) auras.splice(i, 1);
           for (let i = artifacts.length - 1; i >= 0; i--)
-            if (artifacts[i].attachedTo === victim) artifacts.splice(i, 1);
-          emit(`T${turn} [${active.id}] casts ${cardName}: banishes ${victim.card.name}`);
-        } else {
+            if (artifacts[i].attachedTo === banishVictim) artifacts.splice(i, 1);
+          emit(`T${turn} [${active.id}] casts ${cardName}: banishes ${banishVictim.card.name}`);
+        } else if (enemyMinions(active.id).filter(m => !m.stealthy).length === 0) {
           damageAvatar(opp, Math.max(1, cost), cardName);
         }
         break;
@@ -2254,9 +2319,11 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       }
 
       case "transform": {
-        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
-        if (targets.length > 0) {
-          const victim = [...targets].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+        const victim = pickSpellTarget(
+          enemyMinions(active.id).filter(m => !m.stealthy),
+          (a, b) => minionValue(b.card) - minionValue(a.card)
+        );
+        if (victim) {
           const oldName = victim.card.name;
           victim.card = {
             name: "Frog Token", type: "Minion" as const,
@@ -2275,12 +2342,14 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
 
       default: { // generic
         const ping = Math.max(1, cost);
-        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
-        if (targets.length > 0) {
-          const victim = [...targets].sort((a, b) => minionValue(a.card) - minionValue(b.card))[0];
+        const victim = pickSpellTarget(
+          enemyMinions(active.id).filter(m => !m.stealthy),
+          (a, b) => minionValue(a.card) - minionValue(b.card)
+        );
+        if (victim) {
           removeMinion(victim);
           emit(`T${turn} [${active.id}] casts ${cardName}: removes ${victim.card.name}`);
-        } else {
+        } else if (enemyMinions(active.id).filter(m => !m.stealthy).length === 0) {
           damageAvatar(opp, ping, cardName);
         }
       }
@@ -2935,6 +3004,10 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     active.lastMinionPlayed     = null;
     active.beastDiscountAvailable = false;
     active.deployWeakAnywhere     = false;
+    // Rule: Death's Door immunity lasts only for the turn it triggered.
+    // Clear the same-turn-immunity flag for BOTH players at every new turn.
+    active.deathsDoorFiredThisTurn  = false;
+    passive.deathsDoorFiredThisTurn = false;
 
     // Refresh mana (sites + structure artifacts)
     active.mana      = computeMana(grid, minions, active.id);
