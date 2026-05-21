@@ -185,79 +185,88 @@ export type AvatarAbility =
   /** Fires when the avatar casts a Magic spell. */
   | { kind: "on_spell_cast"; grant: "draw" | "mana" | "damage_enemy"; amount: number }
   /** The avatar itself carries a keyword (Stealth, Charge, etc.). */
-  | { kind: "avatar_keyword"; keyword: string };
+  | { kind: "avatar_keyword"; keyword: string }
+  /** Permanent bonus to the player's mana threshold in all elements (e.g. Elementalist). */
+  | { kind: "threshold_bonus"; water: number; earth: number; fire: number; air: number }
+  /** Reduce all incoming damage to this avatar's life total by a fixed amount (e.g. Ironclad). */
+  | { kind: "damage_reduction"; amount: number }
+  /** Start the game with extra spell cards in hand (e.g. Spellslinger). */
+  | { kind: "setup_extra_spells"; amount: number }
+  /** Draw cards whenever a friendly minion successfully attacks an undefended site (e.g. Interrogator, Battlemage). */
+  | { kind: "on_site_attack_draw"; amount: number }
+  /** Once per turn, spend manaCost to summon a token minion on a free friendly site. */
+  | { kind: "summon_token"; attack: number; defense: number; manaCost: number }
+  /** Enemy minions entering a friendly site take this much direct damage (e.g. Druid). */
+  | { kind: "on_enemy_enter_site_damage"; amount: number };
 
-export function parseAvatarAbilities(rulesText: string): AvatarAbility[] {
-  const t = (rulesText ?? "").toLowerCase();
-  const abs: AvatarAbility[] = [];
-  const ELEMENTS = ["water", "earth", "fire", "air"];
+/**
+ * Returns the simulator-relevant abilities for a known avatar by name.
+ *
+ * Sorcery avatars have wildly varied, unique abilities — regex parsing is
+ * not viable. This lookup table covers the ~8 avatars whose abilities map
+ * cleanly to the simulation model. All others return [] and are treated as
+ * vanilla 1/1 (or their stated base stats) with no special rules.
+ *
+ * Unmodelled avatars (complex/unique mechanics):
+ *   Avatar of Air/Fire/Water · Waveshaper · Geomancer · Flamecaller · Sparkmage
+ *   Deathspeaker · Archimago · Enchantress · Animist · Bladedancer · Pathfinder
+ *   Realm-Eater · Persecutor · Dragonlord · Imposter · Corruptor · Duplicator
+ *   Magician · Templar · Harbinger · Witch · Seer · Savior · Avatar of Earth
+ */
+export function lookupAvatarAbilities(name: string): AvatarAbility[] {
+  switch (name) {
 
-  // ── Passive minion stat buff ─────────────────────────────────────────────
-  // "Friendly minions get +1/+0" / "[element] minions you control have +0/+1"
-  const buffM = t.match(/(?:(\w+)\s+)?minions?(?:\s+you\s+control)?\s+(?:get|have|gain)\s+\+(\d+)\/\+(\d+)/);
-  if (buffM) {
-    const el = buffM[1] && ELEMENTS.includes(buffM[1]) ? buffM[1] : null;
-    abs.push({ kind: "passive_buff", attackBonus: parseInt(buffM[2]), defenseBonus: parseInt(buffM[3]), keywords: [], elementFilter: el });
+    // "You have an additional (E)(F)(W)(A)."
+    // Permanent +1 in every threshold — unlocks higher-cost multi-element spells sooner.
+    case "Elementalist":
+      return [{ kind: "threshold_bonus", water: 1, earth: 1, fire: 1, air: 1 }];
+
+    // "Takes 2 less damage."
+    // Every hit on this avatar is reduced by 2 — very durable in long games.
+    case "Ironclad":
+      return [{ kind: "damage_reduction", amount: 2 }];
+
+    // "Start the game with 4 spells in hand."
+    // One extra card at game start → slightly more combo potential in the opening.
+    case "Spellslinger":
+      return [{ kind: "setup_extra_spells", amount: 1 }];
+
+    // "Tap → Draw a spell."
+    // Modelled as a free draw at the start of each turn (the avatar always uses
+    // the tap on the most impactful thing, which in the sim is card advantage).
+    case "Sorcerer":
+      return [{ kind: "start_of_turn", grant: "draw", amount: 1 }];
+
+    // "Nearby allied sites have 'Whenever an enemy enters here, it takes 1 damage.'"
+    // Any enemy minion stepping onto a Druid-owned site takes 1 damage; if its
+    // effective defence is ≤ 1 it is removed.
+    case "Druid":
+      return [{ kind: "on_enemy_enter_site_damage", amount: 1 }];
+
+    // "Once on your turn, you may pay (1) to summon a Skeleton token here."
+    // If the player has ≥ 1 mana and a free friendly site, spend 1 mana for a 1/1.
+    case "Necromancer":
+      return [{ kind: "summon_token", attack: 1, defense: 1, manaCost: 1 }];
+
+    // "Whenever an ally strikes an enemy Avatar, draw a spell unless they pay 3 life."
+    // Approximated as: draw 1 card each time a friendly minion lands a site attack.
+    case "Interrogator":
+      return [{ kind: "on_site_attack_draw", amount: 1 }];
+
+    // "Whenever Battlemage attacks and kills an enemy, you may draw a spell."
+    // Approximated as: draw 1 card on a successful site attack (closest proxy for
+    // the avatar's aggressive kill-and-draw playstyle).
+    case "Battlemage":
+      return [{ kind: "on_site_attack_draw", amount: 1 }];
+
+    default:
+      return [];
   }
-  // Passive keyword grants to minions ("friendly minions have/gain Airborne")
-  for (const kw of ["airborne", "charge", "lethal", "ranged", "burrowing", "ward", "stealth", "undying"]) {
-    if (new RegExp(`(?:friendly\\s+)?(?:\\w+\\s+)?minions?(?:\\s+you\\s+control)?\\s+(?:have|get|gain)\\s+${kw}`).test(t)) {
-      abs.push({ kind: "passive_buff", attackBonus: 0, defenseBonus: 0, keywords: [kw], elementFilter: null });
-    }
-  }
+}
 
-  // ── Start-of-turn triggers ────────────────────────────────────────────────
-  const sotMana = t.match(/at\s+the\s+start\s+of\s+your\s+turn[^.]*?(?:gain|add)\s+(\d+)\s+mana/);
-  if (sotMana) abs.push({ kind: "start_of_turn", grant: "mana", amount: parseInt(sotMana[1]) });
-
-  const sotDraw = t.match(/at\s+the\s+start\s+of\s+your\s+turn[^.]*?draw\s+(?:a\s+card|(\d+))/);
-  if (sotDraw) abs.push({ kind: "start_of_turn", grant: "draw", amount: sotDraw[1] ? parseInt(sotDraw[1]) : 1 });
-
-  const sotDmg = t.match(/at\s+the\s+start\s+of\s+your\s+turn[^.]*?deal\s+(\d+)\s+damage/);
-  if (sotDmg) abs.push({ kind: "start_of_turn", grant: "damage_enemy", amount: parseInt(sotDmg[1]) });
-
-  const sotHeal = t.match(/at\s+the\s+start\s+of\s+your\s+turn[^.]*?(?:heal|restore|gain)\s+(\d+)\s+(?:life|health)/);
-  if (sotHeal) abs.push({ kind: "start_of_turn", grant: "heal", amount: parseInt(sotHeal[1]) });
-
-  // ── On-friendly-death triggers ────────────────────────────────────────────
-  const deathDmg  = t.match(/when(?:ever)?\s+(?:a\s+)?(?:friendly\s+)?minion[^.]*?dies[^.]*?deal\s+(\d+)\s+damage/);
-  if (deathDmg)  abs.push({ kind: "on_friendly_death", grant: "damage_enemy", amount: parseInt(deathDmg[1]) });
-
-  const deathDraw = t.match(/when(?:ever)?\s+(?:a\s+)?(?:friendly\s+)?minion[^.]*?dies[^.]*?draw\s+(?:a\s+card|(\d+))/);
-  if (deathDraw) abs.push({ kind: "on_friendly_death", grant: "draw", amount: deathDraw[1] ? parseInt(deathDraw[1]) : 1 });
-
-  const deathMana = t.match(/when(?:ever)?\s+(?:a\s+)?(?:friendly\s+)?minion[^.]*?dies[^.]*?(?:gain|add)\s+(\d+)\s+mana/);
-  if (deathMana) abs.push({ kind: "on_friendly_death", grant: "mana", amount: parseInt(deathMana[1]) });
-
-  // ── On-site-placed triggers ───────────────────────────────────────────────
-  const siteDraw = t.match(/when(?:ever)?\s+you\s+(?:place|play)\s+(?:a\s+)?site[^.]*?draw\s+(?:a\s+card|(\d+))/);
-  if (siteDraw) abs.push({ kind: "on_site_placed", grant: "draw", amount: siteDraw[1] ? parseInt(siteDraw[1]) : 1 });
-
-  const siteMana = t.match(/when(?:ever)?\s+you\s+(?:place|play)\s+(?:a\s+)?site[^.]*?(?:gain|add)\s+(\d+)\s+mana/);
-  if (siteMana) abs.push({ kind: "on_site_placed", grant: "mana", amount: parseInt(siteMana[1]) });
-
-  const siteDmg = t.match(/when(?:ever)?\s+you\s+(?:place|play)\s+(?:a\s+)?site[^.]*?deal\s+(\d+)\s+damage/);
-  if (siteDmg)  abs.push({ kind: "on_site_placed", grant: "damage_enemy", amount: parseInt(siteDmg[1]) });
-
-  // ── On-spell-cast triggers ────────────────────────────────────────────────
-  const spellDraw = t.match(/when(?:ever)?\s+you\s+cast\s+(?:a\s+)?(?:magic\s+)?(?:spell|card)[^.]*?draw\s+(?:a\s+card|(\d+))/);
-  if (spellDraw) abs.push({ kind: "on_spell_cast", grant: "draw", amount: spellDraw[1] ? parseInt(spellDraw[1]) : 1 });
-
-  const spellMana = t.match(/when(?:ever)?\s+you\s+cast\s+(?:a\s+)?(?:magic\s+)?(?:spell|card)[^.]*?(?:gain|add)\s+(\d+)\s+mana/);
-  if (spellMana) abs.push({ kind: "on_spell_cast", grant: "mana", amount: parseInt(spellMana[1]) });
-
-  const spellDmg = t.match(/when(?:ever)?\s+you\s+cast\s+(?:a\s+)?(?:magic\s+)?(?:spell|card)[^.]*?deal\s+(\d+)\s+damage/);
-  if (spellDmg)  abs.push({ kind: "on_spell_cast", grant: "damage_enemy", amount: parseInt(spellDmg[1]) });
-
-  // ── Avatar keywords ───────────────────────────────────────────────────────
-  for (const kw of ["airborne", "stealth", "charge", "lethal", "ranged", "ward"]) {
-    if (new RegExp(`\\bthis\\s+avatar\\s+(?:has|gains?)\\s+${kw}\\b`).test(t) ||
-        new RegExp(`^${kw}[,.]`).test(t)) {
-      abs.push({ kind: "avatar_keyword", keyword: kw });
-    }
-  }
-
-  return abs;
+/** @deprecated Use lookupAvatarAbilities(name) instead. */
+export function parseAvatarAbilities(_rulesText: string): AvatarAbility[] {
+  return [];
 }
 
 // ─── Grid positions & helpers ─────────────────────────────────────────────────
@@ -421,8 +430,18 @@ function initPlayer(spec: DeckSpec, id: "A" | "B"): PlayerState {
     minionsDeployed: 0,
     siteAttacks:     0,
   };
+  // Starting hand size — base 3 spells, +N from setup_extra_spells ability
+  let extraSpells = 0;
+  for (const ab of spec.avatar.avatarAbilities ?? [])
+    if (ab.kind === "setup_extra_spells") extraSpells += ab.amount;
   for (let i = 0; i < 3 && p.atlasDeck.length > 0; i++) p.atlasHand.push(p.atlasDeck.pop()!);
-  for (let i = 0; i < 3 && p.spellDeck.length > 0; i++) p.spellHand.push(p.spellDeck.pop()!);
+  for (let i = 0; i < 3 + extraSpells && p.spellDeck.length > 0; i++) p.spellHand.push(p.spellDeck.pop()!);
+  // Permanent threshold bonus (e.g. Elementalist) — applied at init so it's active turn 1
+  for (const ab of spec.avatar.avatarAbilities ?? [])
+    if (ab.kind === "threshold_bonus") {
+      p.threshold.water += ab.water; p.threshold.earth += ab.earth;
+      p.threshold.fire  += ab.fire;  p.threshold.air   += ab.air;
+    }
   return p;
 }
 
@@ -654,6 +673,10 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
 
   function damageAvatar(target: PlayerState, amount: number, source: string): void {
     if (amount <= 0) return;
+    // damage_reduction ability (e.g. Ironclad — "Takes 2 less damage")
+    for (const ab of target.avatarCard.avatarAbilities ?? [])
+      if (ab.kind === "damage_reduction") amount = Math.max(0, amount - ab.amount);
+    if (amount <= 0) return;
     target.avatarLife -= amount;
     emit(`  → ${source} deals ${amount} to ${target.avatarCard.name} (${Math.max(0, target.avatarLife)} life)`);
     if (target.avatarLife <= 0 && !target.deathsDoor) {
@@ -708,6 +731,12 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     active.sitesPlaced++;
     active.mana      = countSites(grid, active.id);
     active.threshold = siteThreshold(grid, active.id);
+    // Re-apply permanent threshold bonus after recalculating from sites
+    for (const ab of active.avatarCard.avatarAbilities ?? [])
+      if (ab.kind === "threshold_bonus") {
+        active.threshold.water += ab.water; active.threshold.earth += ab.earth;
+        active.threshold.fire  += ab.fire;  active.threshold.air   += ab.air;
+      }
     // Apply structure artifacts' mana bonus already on board
     for (const art of artifacts)
       if (art.owner === active.id && art.effect.kind === "structure") active.mana += art.effect.manaBonus;
@@ -1032,6 +1061,19 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         if (inBounds(newPos) && !posEq(newPos, bm.pos)) {
           emit(`T${turn} [${active.id}] ${bm.card.name} moves (${bm.pos.col},${bm.pos.row})→(${newPos.col},${newPos.row})`);
           bm.pos = newPos;
+          // on_enemy_enter_site_damage: fire when minion steps onto opponent's site (e.g. Druid)
+          const enteredSq = getSquare(grid, bm.pos);
+          if (enteredSq.owner === opp.id) {
+            for (const ab of opp.avatarCard.avatarAbilities ?? []) {
+              if (ab.kind !== "on_enemy_enter_site_damage") continue;
+              emit(`T${turn} [${opp.id}] ${opp.avatarCard.name}'s site deals ${ab.amount} to ${bm.card.name}`);
+              if (effDef(bm) <= ab.amount) {
+                removeMinion(bm);
+                emit(`  → ${bm.card.name} destroyed by site damage`);
+              }
+            }
+            if (!minions.includes(bm)) continue; // skip if killed by site damage
+          }
         }
       }
 
@@ -1076,6 +1118,13 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
             active.siteAttacks++;
             damageAvatar(opp, effAtk(bm), `${bm.card.name} (site attack)`);
             emit(`T${turn} [${active.id}] ${bm.card.name} attacks undefended site at (${bm.pos.col},${bm.pos.row})`);
+            // on_site_attack_draw (e.g. Interrogator, Battlemage)
+            for (const ab of active.avatarCard.avatarAbilities ?? []) {
+              if (ab.kind === "on_site_attack_draw") {
+                for (let i = 0; i < ab.amount; i++) drawOne(active);
+                emit(`  → ${active.avatarCard.name} draws ${ab.amount} (site attack)`);
+              }
+            }
           }
         }
       }
@@ -1101,6 +1150,12 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     active.threshold = siteThreshold(grid, active.id);
     for (const art of artifacts)
       if (art.owner === active.id && art.effect.kind === "structure") active.mana += art.effect.manaBonus;
+    // Re-apply permanent threshold bonus (recalculated from scratch each turn)
+    for (const ab of active.avatarCard.avatarAbilities ?? [])
+      if (ab.kind === "threshold_bonus") {
+        active.threshold.water += ab.water; active.threshold.earth += ab.earth;
+        active.threshold.fire  += ab.fire;  active.threshold.air   += ab.air;
+      }
 
     // Start-of-turn avatar abilities
     for (const ab of active.avatarCard.avatarAbilities ?? []) {
@@ -1128,6 +1183,29 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
 
     // Play cards
     playCards(active);
+
+    // Once-per-turn token summons (e.g. Necromancer skeleton)
+    for (const ab of active.avatarCard.avatarAbilities ?? []) {
+      if (ab.kind !== "summon_token") continue;
+      if (active.mana < ab.manaCost) continue;
+      const free = freeSiteSquares(grid, minions, active.id);
+      if (free.length === 0) continue;
+      active.mana -= ab.manaCost;
+      const pos = chooseMinionPosition(free, opponent(active.id).avatarPos);
+      const tokenCard: SimCard = {
+        name: "Token", type: "Minion",
+        attack: ab.attack, defense: ab.defense, life: 0,
+        waterT: 0, earthT: 0, fireT: 0, airT: 0,
+        elements: [], keywords: [], rulesText: "",
+      };
+      const bm: BoardMinion = {
+        card: tokenCard, pos, owner: active.id,
+        tapped: false, sick: true, tempDamage: 0, stealthy: false,
+      };
+      minions.push(bm);
+      active.minionsDeployed++;
+      emit(`T${turn} [${active.id}] ${active.avatarCard.name} summons a ${ab.attack}/${ab.defense} token at (${pos.col},${pos.row})`);
+    }
 
     // Combat
     combatStep(active);
@@ -1304,7 +1382,7 @@ export function toSimCards(
       spellEffect:     type === "Magic"    ? parseSpellEffect(rulesText)     : undefined,
       artifactEffect:  type === "Artifact" ? parseArtifactEffect(rulesText)  : undefined,
       auraEffect:      type === "Aura"     ? parseAuraEffect(rulesText)      : undefined,
-      avatarAbilities: type === "Avatar"   ? parseAvatarAbilities(rulesText) : undefined,
+      avatarAbilities: type === "Avatar"   ? lookupAvatarAbilities(c.name)   : undefined,
     };
     for (let i = 0; i < (entry.quantity ?? 1); i++) out.push(simCard);
   }
