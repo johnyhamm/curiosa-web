@@ -54,49 +54,129 @@ function hasKw(card: SimCard, kw: string): boolean {
 
 export type SpellEffect =
   | { kind: "destroy" }                         // unconditionally remove a minion
-  | { kind: "damage";     amount: number }       // deal X to minion or avatar
-  | { kind: "damage_all"; amount: number }       // deal X to EVERY enemy minion (AoE)
-  | { kind: "draw";       amount: number }       // draw X cards
-  | { kind: "buff";       attack: number; defense: number } // +X/+Y this turn
+  | { kind: "damage";        amount: number }    // deal X to minion or avatar
+  | { kind: "damage_all";    amount: number }    // deal X to EVERY enemy minion (AoE)
+  | { kind: "damage_location"; amount: number }  // deal X to each unit at a target enemy site
+  | { kind: "draw";          amount: number }    // draw X cards
+  | { kind: "buff";          attack: number; defense: number } // +X/+Y this turn
   | { kind: "bounce" }                           // return strongest enemy to hand
-  | { kind: "destroy_site" }                    // destroy a target enemy site
+  | { kind: "bounce_all" }                       // return ALL enemy minions to hand (Upwelling)
+  | { kind: "destroy_site" }                     // destroy a target enemy site
+  | { kind: "destroy_artifacts" }                // destroy target artifact / aura / equipment
+  | { kind: "destroy_type"; subtypes: string[] } // destroy all minions of given subtypes (Exorcism)
   | { kind: "steal" }                            // take control of a target enemy minion
   | { kind: "exhaust" }                          // tap/exhaust a target enemy minion
+  | { kind: "exhaust_all" }                      // tap ALL enemy minions (Frost Nova)
+  | { kind: "banish" }                           // remove from game (no cemetery, Disintegrate)
+  | { kind: "heal";          amount: number }    // restore X life to own avatar (Divine Healing)
+  | { kind: "summon_tokens"; count: number; atk: number; def: number } // summon N token minions
+  | { kind: "grant_keyword"; keyword: string; toAll: boolean } // give keyword to minion(s)
+  | { kind: "raise_dead" }                       // re-summon strongest dead minion from cemetery
+  | { kind: "transform" }                        // replace target with a 1/1 vanilla token
   | { kind: "generic" };                         // fallback (cost-based ping)
 
 export function parseSpellEffect(rulesText: string): SpellEffect {
   const t = (rulesText ?? "").toLowerCase();
 
-  // AoE damage ("deal X damage to all / each") — check before single-target
-  const aoeMatch = t.match(/deal[s]?\s+(\d+)\s+damage\s+to\s+(all|each)/);
+  // ── Damage at a location ("deal X damage to each/all unit/minion at target …") ──
+  // Must come before damage_all to avoid catching Minor Explosion / Incinerate as global AoE.
+  if (/deal[s]?\s+\d+\s+damage\s+to\s+(?:each|all)\s+\w+s?\s+at\s+target/.test(t)) {
+    const m = t.match(/deal[s]?\s+(\d+)\s+damage/);
+    return { kind: "damage_location", amount: m ? parseInt(m[1]) : 1 };
+  }
+
+  // ── AoE damage to all / each (global) ──
+  const aoeMatch = t.match(/deal[s]?\s+(\d+)\s+damage\s+to\s+(?:all|each)\b/);
   if (aoeMatch) return { kind: "damage_all", amount: parseInt(aoeMatch[1]) };
 
-  // Single-target damage ("deal X damage")
+  // ── Single-target damage ──
   const dmgMatch = t.match(/deal[s]?\s+(\d+)\s+damage/);
   if (dmgMatch) return { kind: "damage", amount: parseInt(dmgMatch[1]) };
 
-  // Steal / take control — check before destroy to avoid mis-matching "destroy a stolen minion"
-  if (/(?:gain|take)\s+control|steal\s+target/.test(t)) return { kind: "steal" };
+  // ── Bounce all before single bounce ──
+  if (/return\b.*\b(?:all|each)\b.*\bto\b.*\bhand\b/.test(t)) return { kind: "bounce_all" };
 
-  // Destroy site — check before generic destroy
-  if (/destroy\b.*\bsite\b/.test(t)) return { kind: "destroy_site" };
-
-  // Destroy ("destroy target")
-  if (/\bdestroy\b/.test(t)) return { kind: "destroy" };
-
-  // Exhaust / tap a target
-  if (/\bexhaust\b|\btap\s+target\b/.test(t)) return { kind: "exhaust" };
-
-  // Bounce ("return … to … hand")
+  // ── Bounce single ──
   if (/return\b.*\bto\b.*\bhand\b/.test(t)) return { kind: "bounce" };
 
-  // Draw ("draw X")
+  // ── Exhaust all before single exhaust ──
+  if (/\bexhaust\b.*\b(?:all|each)\b|\btap\s+all\b/.test(t)) return { kind: "exhaust_all" };
+
+  // ── Exhaust / tap a target ──
+  if (/\bexhaust\b|\btap\s+target\b/.test(t)) return { kind: "exhaust" };
+
+  // ── Steal / take control ──
+  if (/(?:gain|take)\s+control|steal\s+target/.test(t)) return { kind: "steal" };
+
+  // ── Banish — before destroy (Disintegrate, Cast into Exile) ──
+  if (/\bbanish\b/.test(t)) return { kind: "banish" };
+
+  // ── Destroy artifacts / equipment / aura — before generic destroy ──
+  if (/destroy\b.*\b(?:artifact|equipment|aura|enchantment|weapon|armor)\b/.test(t))
+    return { kind: "destroy_artifacts" };
+
+  // ── Destroy all [subtype] — before generic destroy (Exorcism, Mortality) ──
+  const destroyTypeMatch = t.match(/destroy\s+all\s+(\w+)(?:\s+and\s+(\w+))?/);
+  if (destroyTypeMatch) {
+    const skip = new Set(["enemy","the","target","a","an","your","their","nearby","friendly"]);
+    const st1 = destroyTypeMatch[1];
+    if (!skip.has(st1)) {
+      const subtypes = [st1];
+      if (destroyTypeMatch[2] && !skip.has(destroyTypeMatch[2])) subtypes.push(destroyTypeMatch[2]);
+      return { kind: "destroy_type", subtypes };
+    }
+  }
+
+  // ── Destroy site — before generic destroy ──
+  if (/destroy\b.*\bsite\b/.test(t)) return { kind: "destroy_site" };
+
+  // ── Generic destroy ──
+  if (/\bdestroy\b/.test(t)) return { kind: "destroy" };
+
+  // ── Heal ("heal X life" / "restore X life" / "gains X life" / "heal all damage") ──
+  const healMatch = t.match(/heal\s+(\d+)\s+life|restore\s+(\d+)\s+life|gains?\s+(\d+)\s+life/);
+  if (healMatch) {
+    const amt = parseInt(healMatch[1] ?? healMatch[2] ?? healMatch[3]);
+    return { kind: "heal", amount: amt };
+  }
+  if (/\bheal(?:s)?\s+(?:all|full)/.test(t)) return { kind: "heal", amount: 10 };
+
+  // ── Raise dead ("summon/return … from … cemetery") ──
+  if (/(?:summon|return).*from.*(?:your\s+)?cemetery/.test(t)) return { kind: "raise_dead" };
+
+  // ── Summon tokens ──
+  if (/\bsummon\b.*\btoken/.test(t)) {
+    const countMatch = t.match(/summon\s+(\d+)/);
+    const count = countMatch ? parseInt(countMatch[1]) : 1;
+    return { kind: "summon_tokens", count, atk: 1, def: 1 };
+  }
+
+  // ── Transform ("transform target" / "becomes a … token") ──
+  if (/\btransform\b|\bbecomes?\s+a\b.*\btoken\b/.test(t)) return { kind: "transform" };
+
+  // ── Grant keyword to ALL friendly minions (must come before single-target grant) ──
+  for (const kw of ["stealth","airborne","charge","lethal","ward","ranged","burrowing"]) {
+    if (new RegExp(
+      `all\\b.*\\bgain[s]?\\s+${kw}|each\\b.*\\bgain[s]?\\s+${kw}|give.*${kw}.*to\\s+all`
+    ).test(t)) return { kind: "grant_keyword", keyword: kw, toAll: true };
+  }
+
+  // ── Grant keyword to one minion ──
+  for (const kw of ["stealth","airborne","charge","lethal","ward","ranged","burrowing"]) {
+    if (new RegExp(`\\bgive[s]?\\b.*\\b${kw}\\b|\\bgives?\\s+${kw}\\b|target.*gains?\\s+${kw}\\b`).test(t))
+      return { kind: "grant_keyword", keyword: kw, toAll: false };
+  }
+
+  // ── Draw ("draw N" or "draw a card/spell") ──
   const drawMatch = t.match(/\bdraw\s+(\d+)\b/);
   if (drawMatch) return { kind: "draw", amount: parseInt(drawMatch[1]) };
+  if (/\bdraw\s+a\s+(?:card|spell|minion)\b/.test(t)) return { kind: "draw", amount: 1 };
 
-  // Buff ("+X/+Y until end of turn" or just "+X/+Y")
+  // ── Buff ("+X/+Y" or "+N power") ──
   const buffMatch = t.match(/\+(\d+)\/\+(\d+)/);
   if (buffMatch) return { kind: "buff", attack: parseInt(buffMatch[1]), defense: parseInt(buffMatch[2]) };
+  const powerMatch = t.match(/\+(\d+)\s+power/);
+  if (powerMatch) return { kind: "buff", attack: parseInt(powerMatch[1]), defense: 0 };
 
   return { kind: "generic" };
 }
@@ -2006,6 +2086,189 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
           const victim = [...targets].sort((a, b) => effAtk(b) - effAtk(a))[0];
           victim.tapped = true;
           emit(`T${turn} [${active.id}] casts ${cardName}: exhausts ${victim.card.name}`);
+        }
+        break;
+      }
+
+      case "exhaust_all": {
+        const targets = enemyMinions(active.id).filter(m => !m.tapped);
+        for (const t of targets) t.tapped = true;
+        emit(`T${turn} [${active.id}] casts ${cardName}: exhausts all ${targets.length} enemy minions`);
+        break;
+      }
+
+      case "damage_location": {
+        // Target the enemy site with the most occupants (proxy for "target location")
+        const enemySitePos = ownedSites(grid, opp.id);
+        if (enemySitePos.length > 0) {
+          const targetPos = [...enemySitePos].sort((a, b) => {
+            const ca = minions.filter(m => posEq(m.pos, a)).length;
+            const cb = minions.filter(m => posEq(m.pos, b)).length;
+            return cb - ca;
+          })[0];
+          const atTarget = minions.filter(m => posEq(m.pos, targetPos));
+          const siteName = getSquare(grid, targetPos).site?.name ?? "enemy site";
+          emit(`T${turn} [${active.id}] casts ${cardName}: ${effect.amount} damage to all at ${siteName}`);
+          for (const t of [...atTarget]) {
+            if (effect.amount >= effDef(t)) { removeMinion(t); emit(`  → ${t.card.name} destroyed`); }
+          }
+          if (atTarget.length === 0) damageAvatar(opp, effect.amount, cardName);
+        } else {
+          damageAvatar(opp, effect.amount, cardName);
+        }
+        break;
+      }
+
+      case "bounce_all": {
+        // Return all non-stealthy, non-warded enemy minions to opponent's hand
+        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
+        for (const t of [...targets]) {
+          opp.spellHand.push(t.card);
+          const idx = minions.indexOf(t);
+          if (idx !== -1) minions.splice(idx, 1);
+          for (let i = auras.length - 1; i >= 0; i--)
+            if (auras[i].attachedTo === t) auras.splice(i, 1);
+          for (let i = artifacts.length - 1; i >= 0; i--)
+            if (artifacts[i].attachedTo === t) artifacts.splice(i, 1);
+        }
+        emit(`T${turn} [${active.id}] casts ${cardName}: bounces ${targets.length} enemy minion(s) to hand`);
+        break;
+      }
+
+      case "banish": {
+        // Remove from game without touching the cemetery or triggering on_friendly_death
+        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
+        if (targets.length > 0) {
+          const victim = [...targets].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+          const idx = minions.indexOf(victim);
+          if (idx !== -1) minions.splice(idx, 1);
+          for (let i = auras.length - 1; i >= 0; i--)
+            if (auras[i].attachedTo === victim) auras.splice(i, 1);
+          for (let i = artifacts.length - 1; i >= 0; i--)
+            if (artifacts[i].attachedTo === victim) artifacts.splice(i, 1);
+          emit(`T${turn} [${active.id}] casts ${cardName}: banishes ${victim.card.name}`);
+        } else {
+          damageAvatar(opp, Math.max(1, cost), cardName);
+        }
+        break;
+      }
+
+      case "destroy_type": {
+        const targets = enemyMinions(active.id).filter(m => {
+          const subs = m.card.subtypes.map(s => s.toLowerCase());
+          return effect.subtypes.some(st => subs.includes(st.toLowerCase()));
+        });
+        if (targets.length > 0) {
+          for (const t of [...targets]) removeMinion(t);
+          emit(`T${turn} [${active.id}] casts ${cardName}: destroys ${targets.length} ${effect.subtypes.join("/")} minion(s)`);
+        } else {
+          damageAvatar(opp, Math.max(1, cost), cardName);
+        }
+        break;
+      }
+
+      case "destroy_artifacts": {
+        // Target enemy auras (enchantments) first, then equipment/structure artifacts
+        const enemyAuraList = auras.filter(a => a.owner === opp.id);
+        const enemyArtList  = artifacts.filter(a => a.owner === opp.id);
+        if (enemyAuraList.length > 0) {
+          const target = enemyAuraList[0];
+          auras.splice(auras.indexOf(target), 1);
+          emit(`T${turn} [${active.id}] casts ${cardName}: destroys ${target.card.name}`);
+        } else if (enemyArtList.length > 0) {
+          const target = enemyArtList[0];
+          artifacts.splice(artifacts.indexOf(target), 1);
+          emit(`T${turn} [${active.id}] casts ${cardName}: destroys ${target.card.name}`);
+        } else {
+          damageAvatar(opp, Math.max(1, cost), cardName);
+        }
+        break;
+      }
+
+      case "heal": {
+        const healed = applyHeal(active, effect.amount);
+        emit(`T${turn} [${active.id}] casts ${cardName}: heals ${healed} life`);
+        break;
+      }
+
+      case "summon_tokens": {
+        let summoned = 0;
+        for (let i = 0; i < effect.count; i++) {
+          const free = freeSiteSquares(grid, minions, active.id);
+          if (free.length === 0) break;
+          const pos = chooseMinionPosition(free, opp.avatarPos);
+          const tokenCard: SimCard = {
+            name: "Token", type: "Minion" as const,
+            attack: effect.atk, defense: effect.def,
+            life: 0, waterT: 0, earthT: 0, fireT: 0, airT: 0,
+            elements: [], keywords: [], rulesText: "", subtypes: [],
+          };
+          minions.push({ card: tokenCard, pos, owner: active.id,
+            tapped: false, sick: true, tempDamage: 0, stealthy: false,
+            skipNextUntap: false, temporary: false });
+          summoned++;
+        }
+        emit(`T${turn} [${active.id}] casts ${cardName}: summons ${summoned} token(s)`);
+        break;
+      }
+
+      case "grant_keyword": {
+        if (effect.toAll) {
+          const friends = friendlyMinions(active.id);
+          let count = 0;
+          for (const bm of friends) {
+            if (!bm.card.keywords.includes(effect.keyword)) {
+              bm.card = { ...bm.card, keywords: [...bm.card.keywords, effect.keyword] };
+              count++;
+            }
+          }
+          emit(`T${turn} [${active.id}] casts ${cardName}: gives ${effect.keyword} to ${count} friendly minion(s)`);
+        } else {
+          const friends = friendlyMinions(active.id);
+          if (friends.length > 0) {
+            const target = [...friends].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+            if (!target.card.keywords.includes(effect.keyword)) {
+              target.card = { ...target.card, keywords: [...target.card.keywords, effect.keyword] };
+            }
+            emit(`T${turn} [${active.id}] casts ${cardName}: gives ${effect.keyword} to ${target.card.name}`);
+          }
+        }
+        break;
+      }
+
+      case "raise_dead": {
+        const dead = active.deadMinions;
+        if (dead.length > 0) {
+          const best = [...dead].sort((a, b) => minionValue(b) - minionValue(a))[0];
+          dead.splice(dead.indexOf(best), 1);
+          const free = freeSiteSquares(grid, minions, active.id);
+          if (free.length > 0) {
+            const pos = chooseMinionPosition(free, opp.avatarPos);
+            minions.push({ card: best, pos, owner: active.id,
+              tapped: true, sick: true, tempDamage: 0, stealthy: false,
+              skipNextUntap: false, temporary: false });
+            emit(`T${turn} [${active.id}] casts ${cardName}: raises ${best.name} from the dead`);
+          }
+        }
+        break;
+      }
+
+      case "transform": {
+        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
+        if (targets.length > 0) {
+          const victim = [...targets].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+          const oldName = victim.card.name;
+          victim.card = {
+            name: "Frog Token", type: "Minion" as const,
+            attack: 1, defense: 1,
+            life: 0, waterT: 0, earthT: 0, fireT: 0, airT: 0,
+            elements: [], keywords: [], rulesText: "", subtypes: [],
+          };
+          for (let i = auras.length - 1; i >= 0; i--)
+            if (auras[i].attachedTo === victim) auras.splice(i, 1);
+          for (let i = artifacts.length - 1; i >= 0; i--)
+            if (artifacts[i].attachedTo === victim) artifacts.splice(i, 1);
+          emit(`T${turn} [${active.id}] casts ${cardName}: transforms ${oldName} into a 1/1 Frog`);
         }
         break;
       }
