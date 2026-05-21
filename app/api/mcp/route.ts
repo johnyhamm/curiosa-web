@@ -457,43 +457,40 @@ function createMcpServer(): McpServer {
       const idA = extractDeckId(deck_a);
       const idB = extractDeckId(deck_b);
 
-      const [dataA, dataB] = await Promise.all([
+      const [dataA, dataB, allCards] = await Promise.all([
         fetchDeckFromApi(idA),
         fetchDeckFromApi(idB),
+        loadCards(),
       ]);
+
+      const rulesLookup = new Map(allCards.map(c => [c.name, c.guardian.rulesText ?? ""]));
 
       const avatarCardA = dataA.avatar as ApiDeckCard | null;
       const avatarCardB = dataB.avatar as ApiDeckCard | null;
 
+      const unknownAvatar = {
+        name: "Unknown Avatar", type: "Avatar" as const,
+        attack: 0, defense: 0, waterT: 0, earthT: 0, fireT: 0, airT: 0,
+        elements: [], keywords: [], rulesText: "",
+      };
+
       const avatarSimA = avatarCardA
-        ? toSimCards([{ ...avatarCardA, quantity: 1 }])[0]
-        : {
-            name: "Unknown Avatar",
-            type: "Avatar" as const,
-            attack: 0, defense: 0,
-            waterT: 0, earthT: 0, fireT: 0, airT: 0,
-            elements: [],
-          };
+        ? toSimCards([{ ...avatarCardA, quantity: 1 }], rulesLookup)[0]
+        : unknownAvatar;
 
       const avatarSimB = avatarCardB
-        ? toSimCards([{ ...avatarCardB, quantity: 1 }])[0]
-        : {
-            name: "Unknown Avatar",
-            type: "Avatar" as const,
-            attack: 0, defense: 0,
-            waterT: 0, earthT: 0, fireT: 0, airT: 0,
-            elements: [],
-          };
+        ? toSimCards([{ ...avatarCardB, quantity: 1 }], rulesLookup)[0]
+        : unknownAvatar;
 
       const specA = {
         name: dataA.meta?.name ?? idA,
         avatar: avatarSimA,
-        cards: toSimCards(dataA.decklist),
+        cards: toSimCards(dataA.decklist, rulesLookup),
       };
       const specB = {
         name: dataB.meta?.name ?? idB,
         avatar: avatarSimB,
-        cards: toSimCards(dataB.decklist),
+        cards: toSimCards(dataB.decklist, rulesLookup),
       };
 
       if (specA.cards.length === 0 || specB.cards.length === 0) {
