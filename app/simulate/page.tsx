@@ -3,6 +3,7 @@
 import { useState } from "react";
 import type { SimulationReport } from "@/lib/simulator";
 import { GridBoard } from "./GridBoard";
+import { DeckPicker } from "./DeckPicker";
 
 function WinBar({ label, pct, color }: { label: string; pct: string; color: string }) {
   const n = parseFloat(pct);
@@ -83,26 +84,18 @@ export default function SimulatePage() {
       {/* Inputs */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-8 flex flex-col gap-4">
         <div className="grid sm:grid-cols-2 gap-4">
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-gray-300">Deck A</label>
-            <input
-              type="text"
-              value={deckA}
-              onChange={(e) => setDeckA(e.target.value)}
-              placeholder="ID or https://curiosa.io/decks/..."
-              className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-amber-500 transition-colors text-sm"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <label className="text-sm font-medium text-gray-300">Deck B</label>
-            <input
-              type="text"
-              value={deckB}
-              onChange={(e) => setDeckB(e.target.value)}
-              placeholder="ID or https://curiosa.io/decks/..."
-              className="bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-amber-500 transition-colors text-sm"
-            />
-          </div>
+          <DeckPicker
+            label="Deck A"
+            value={deckA}
+            onChange={(id) => setDeckA(id)}
+            accentColor="amber"
+          />
+          <DeckPicker
+            label="Deck B"
+            value={deckB}
+            onChange={(id) => setDeckB(id)}
+            accentColor="sky"
+          />
         </div>
 
         <div className="flex flex-col gap-2">
