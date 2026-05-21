@@ -14,7 +14,7 @@ const features = [
   },
   {
     href: "/decks",
-    title: "Deck Browser",
+    title: "Deck Explorer",
     icon: "📚",
     description:
       "Browse 16,000+ public decks from curiosa.io. Filter by avatar, sort by most liked or most viewed, and inspect full decklists.",
@@ -42,10 +42,10 @@ export default function Home() {
       {/* Hero */}
       <div className="text-center mb-16">
         <h1 className="text-5xl sm:text-6xl font-bold text-amber-400 mb-4 tracking-tight">
-          Curiosa
+          SorcerySim
         </h1>
         <p className="text-xl text-gray-400 max-w-2xl mx-auto">
-          An unofficial browser for{" "}
+          An unofficial simulator for{" "}
           <a
             href="https://curiosa.io"
             target="_blank"

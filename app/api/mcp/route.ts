@@ -23,7 +23,7 @@ export const dynamic = "force-dynamic";
 
 function createMcpServer(): McpServer {
   const server = new McpServer({
-    name: "curiosa-web",
+    name: "sorcery-sim",
     version: "1.0.0",
   });
 

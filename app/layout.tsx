@@ -14,8 +14,8 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Curiosa — Sorcery: Contested Realm",
-  description: "Card search, deck browser, and match simulator for Sorcery: Contested Realm",
+  title: "SorcerySim — Sorcery: Contested Realm",
+  description: "Card search, deck explorer, and match simulator for Sorcery: Contested Realm",
 };
 
 export default function RootLayout({
@@ -36,7 +36,7 @@ export default function RootLayout({
                 href="/"
                 className="text-amber-400 font-bold text-xl tracking-tight hover:text-amber-300 transition-colors"
               >
-                Curiosa
+                SorcerySim
               </Link>
               <div className="flex items-center gap-1">
                 <Link
@@ -69,7 +69,7 @@ export default function RootLayout({
         </nav>
         <main className="flex-1">{children}</main>
         <footer className="bg-gray-900 border-t border-gray-800 py-6 text-center text-sm text-gray-500">
-          Curiosa — Unofficial browser for Sorcery: Contested Realm. Data from{" "}
+          SorcerySim — Unofficial simulator for Sorcery: Contested Realm. Data from{" "}
           <a
             href="https://curiosa.io"
             target="_blank"
