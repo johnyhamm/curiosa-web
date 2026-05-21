@@ -4,6 +4,7 @@ import { useState } from "react";
 import type { SimulationReport } from "@/lib/simulator";
 import { GridBoard } from "./GridBoard";
 import { DeckPicker } from "./DeckPicker";
+import { MatchExplanation } from "./MatchExplanation";
 
 /** Single tug-of-war bar: amber = A wins, gray = draws, sky = B wins */
 function MatchupBar({ winA, draws, winB }: { winA: number; draws: number; winB: number }) {
@@ -244,6 +245,9 @@ export default function SimulatePage() {
               <MatchupBar winA={winANum} draws={drawsNum} winB={winBNum} />
             </div>
           </div>
+
+          {/* Match explanation */}
+          <MatchExplanation report={report} leader={leader} />
 
           {/* Board viewer */}
           {snapshots.length > 0 && currentSnap && (

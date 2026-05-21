@@ -214,6 +214,10 @@ interface PlayerState {
   mana: number;          // refreshes each turn = count of own sites
   threshold: Threshold;
   avatarTapUsed: boolean; // site placement once per turn
+  // ── Per-game stats (used for simulation analysis) ──────────────────────────
+  sitesPlaced:     number;
+  minionsDeployed: number;
+  siteAttacks:     number; // times a unit hit an undefended enemy site
 }
 
 // ─── Deck helpers ─────────────────────────────────────────────────────────────
@@ -247,9 +251,12 @@ function initPlayer(spec: DeckSpec, id: "A" | "B"): PlayerState {
     spellDeck:      nonSites,
     atlasHand:      [],
     spellHand:      [],
-    mana:           0,
-    threshold:      { water: 0, earth: 0, fire: 0, air: 0 },
-    avatarTapUsed:  false,
+    mana:            0,
+    threshold:       { water: 0, earth: 0, fire: 0, air: 0 },
+    avatarTapUsed:   false,
+    sitesPlaced:     0,
+    minionsDeployed: 0,
+    siteAttacks:     0,
   };
 
   // Starting hand: 3 atlas cards + 3 spellbook cards
@@ -475,6 +482,13 @@ export interface GameResult {
   snapshots: BoardSnapshot[];
   finalLifeA: number;
   finalLifeB: number;
+  // Per-game stats for aggregation
+  sitesA:     number;
+  sitesB:     number;
+  minionsA:   number;
+  minionsB:   number;
+  siteAtksA:  number;
+  siteAtksB:  number;
 }
 
 // ─── Main game simulation ─────────────────────────────────────────────────────
@@ -579,6 +593,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     sq.site    = card;
     sq.isRubble = false;
     active.avatarTapUsed = true;
+    active.sitesPlaced++;
 
     // Refresh mana and threshold
     active.mana      = countSites(grid, active.id);
@@ -633,6 +648,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
           stealthy: hasKw(card, "stealth"),
         };
         minions.push(bm);
+        active.minionsDeployed++;
         const kwStr = card.keywords.length ? ` [${card.keywords.join(",")}]` : "";
         emit(`T${turn} [${active.id}] plays ${card.name} (${card.attack}/${card.defense})${kwStr} → (${pos.col},${pos.row})`);
         keepTrying = true;
@@ -796,6 +812,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
             // Undefended enemy site! Attack → deal power to enemy avatar
             if (bm.stealthy) bm.stealthy = false;
             bm.tapped = true;
+            active.siteAttacks++;
             damageAvatar(opp, bm.card.attack, `${bm.card.name} (site attack)`);
             emit(`T${turn} [${active.id}] ${bm.card.name} attacks undefended site at (${bm.pos.col},${bm.pos.row})`);
           }
@@ -866,26 +883,39 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     snapshots,
     finalLifeA: Math.max(0, pA.avatarLife),
     finalLifeB: Math.max(0, pB.avatarLife),
+    sitesA:    pA.sitesPlaced,
+    sitesB:    pB.sitesPlaced,
+    minionsA:  pA.minionsDeployed,
+    minionsB:  pB.minionsDeployed,
+    siteAtksA: pA.siteAttacks,
+    siteAtksB: pB.siteAttacks,
   };
 }
 
 // ─── Monte Carlo runner ───────────────────────────────────────────────────────
 
 export interface SimulationReport {
-  deckAName:     string;
-  deckBName:     string;
-  avatarA:       string;
-  avatarB:       string;
-  iterations:    number;
-  winsA:         number;
-  winsB:         number;
-  draws:         number;
-  winRateA:      string;
-  winRateB:      string;
-  avgTurns:      string;
-  avgFinalLifeA: string;
-  avgFinalLifeB: string;
-  sampleGame:    GameResult;
+  deckAName:       string;
+  deckBName:       string;
+  avatarA:         string;
+  avatarB:         string;
+  iterations:      number;
+  winsA:           number;
+  winsB:           number;
+  draws:           number;
+  winRateA:        string;
+  winRateB:        string;
+  avgTurns:        string;
+  avgFinalLifeA:   string;
+  avgFinalLifeB:   string;
+  // ── Per-game averages for analysis ────────────────────────────────────────
+  avgSitesA:       string;
+  avgSitesB:       string;
+  avgMinionsA:     string;
+  avgMinionsB:     string;
+  avgSiteAttacksA: string;
+  avgSiteAttacksB: string;
+  sampleGame:      GameResult;
 }
 
 export function runSimulation(
@@ -895,6 +925,9 @@ export function runSimulation(
 ): SimulationReport {
   let winsA = 0, winsB = 0, draws = 0;
   let totalTurns = 0, totalLifeA = 0, totalLifeB = 0;
+  let totalSitesA = 0, totalSitesB = 0;
+  let totalMinionsA = 0, totalMinionsB = 0;
+  let totalSiteAtksA = 0, totalSiteAtksB = 0;
   let sampleGame: GameResult | null = null;
 
   for (let i = 0; i < iterations; i++) {
@@ -902,27 +935,40 @@ export function runSimulation(
     if      (result.winner === "A") winsA++;
     else if (result.winner === "B") winsB++;
     else                            draws++;
-    totalTurns += result.turns;
-    totalLifeA += result.finalLifeA;
-    totalLifeB += result.finalLifeB;
+    totalTurns   += result.turns;
+    totalLifeA   += result.finalLifeA;
+    totalLifeB   += result.finalLifeB;
+    totalSitesA  += result.sitesA;
+    totalSitesB  += result.sitesB;
+    totalMinionsA  += result.minionsA;
+    totalMinionsB  += result.minionsB;
+    totalSiteAtksA += result.siteAtksA;
+    totalSiteAtksB += result.siteAtksB;
     if (i === 0) sampleGame = result;
   }
 
   const pct = (n: number) => ((n / iterations) * 100).toFixed(1) + "%";
+  const avg = (n: number) => (n / iterations).toFixed(1);
 
   return {
-    deckAName:     specA.name,
-    deckBName:     specB.name,
-    avatarA:       specA.avatar.name,
-    avatarB:       specB.avatar.name,
+    deckAName:       specA.name,
+    deckBName:       specB.name,
+    avatarA:         specA.avatar.name,
+    avatarB:         specB.avatar.name,
     iterations,
     winsA, winsB, draws,
-    winRateA:      pct(winsA),
-    winRateB:      pct(winsB),
-    avgTurns:      (totalTurns / iterations).toFixed(1),
-    avgFinalLifeA: (totalLifeA / iterations).toFixed(1),
-    avgFinalLifeB: (totalLifeB / iterations).toFixed(1),
-    sampleGame:    sampleGame!,
+    winRateA:        pct(winsA),
+    winRateB:        pct(winsB),
+    avgTurns:        avg(totalTurns),
+    avgFinalLifeA:   avg(totalLifeA),
+    avgFinalLifeB:   avg(totalLifeB),
+    avgSitesA:       avg(totalSitesA),
+    avgSitesB:       avg(totalSitesB),
+    avgMinionsA:     avg(totalMinionsA),
+    avgMinionsB:     avg(totalMinionsB),
+    avgSiteAttacksA: avg(totalSiteAtksA),
+    avgSiteAttacksB: avg(totalSiteAtksB),
+    sampleGame:      sampleGame!,
   };
 }
 
