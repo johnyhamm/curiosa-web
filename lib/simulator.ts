@@ -5,6 +5,11 @@ export interface SimCard {
   type: "Avatar" | "Site" | "Minion" | "Magic" | "Artifact" | "Aura";
   attack: number;
   defense: number;
+  /**
+   * Avatar starting life total (from guardian.life in the card DB).
+   * Distinct from `defense` (combat armour).  0 means unknown → falls back to 20.
+   */
+  life: number;
   waterT: number;
   earthT: number;
   fireT: number;
@@ -235,7 +240,7 @@ function initPlayer(spec: DeckSpec, id: "A" | "B"): PlayerState {
   const player: PlayerState = {
     id,
     avatarCard:     spec.avatar,
-    avatarLife:     spec.avatar.defense > 0 ? spec.avatar.defense : 20,
+    avatarLife:     spec.avatar.life > 0 ? spec.avatar.life : 20,
     avatarPos:      { col: AVATAR_COL, row: id === "A" ? 0 : 3 },
     deathsDoor:     false,
     atlasDeck:      sites,
@@ -981,6 +986,8 @@ export function toSimCards(
   apiCards: ApiDeckCard[],
   /** Optional card-name → rulesText lookup for keyword detection */
   rulesLookup?: Map<string, string>,
+  /** Optional card-name → life total lookup (avatars only; from guardian.life) */
+  lifeLookup?: Map<string, number>,
 ): SimCard[] {
   const out: SimCard[] = [];
   for (const entry of apiCards) {
@@ -991,6 +998,7 @@ export function toSimCards(
       type:     c.type as SimCard["type"],
       attack:   c.attack   ?? 0,
       defense:  c.defense  ?? 0,
+      life:     lifeLookup?.get(c.name) ?? 0,
       waterT:   c.waterThreshold ?? 0,
       earthT:   c.earthThreshold ?? 0,
       fireT:    c.fireThreshold  ?? 0,

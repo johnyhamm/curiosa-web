@@ -35,22 +35,23 @@ export async function POST(request: NextRequest) {
     ]);
 
     const rulesLookup = new Map(allCards.map(c => [c.name, c.guardian.rulesText ?? ""]));
+    const lifeLookup  = new Map(allCards.map(c => [c.name, c.guardian.life ?? 0]));
 
     const avatarCardA = dataA.avatar as ApiDeckCard | null;
     const avatarCardB = dataB.avatar as ApiDeckCard | null;
 
     const unknownAvatar = {
       name: "Unknown Avatar", type: "Avatar" as const,
-      attack: 0, defense: 0, waterT: 0, earthT: 0, fireT: 0, airT: 0,
+      attack: 0, defense: 0, life: 20, waterT: 0, earthT: 0, fireT: 0, airT: 0,
       elements: [], keywords: [], rulesText: "",
     };
 
     const avatarSimA = avatarCardA
-      ? toSimCards([{ ...avatarCardA, quantity: 1 }], rulesLookup)[0]
+      ? toSimCards([{ ...avatarCardA, quantity: 1 }], rulesLookup, lifeLookup)[0]
       : unknownAvatar;
 
     const avatarSimB = avatarCardB
-      ? toSimCards([{ ...avatarCardB, quantity: 1 }], rulesLookup)[0]
+      ? toSimCards([{ ...avatarCardB, quantity: 1 }], rulesLookup, lifeLookup)[0]
       : unknownAvatar;
 
     const specA = {
