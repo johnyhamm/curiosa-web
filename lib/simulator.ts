@@ -15,9 +15,10 @@ export interface SimCard {
   keywords: string[];
   rulesText: string;
   // Pre-parsed effects (set by toSimCards; undefined for non-spell/artifact/aura cards)
-  spellEffect?:    SpellEffect;
-  artifactEffect?: ArtifactEffect;
-  auraEffect?:     AuraEffect;
+  spellEffect?:     SpellEffect;
+  artifactEffect?:  ArtifactEffect;
+  auraEffect?:      AuraEffect;
+  avatarAbilities?: AvatarAbility[];
 }
 
 export interface DeckSpec {
@@ -38,6 +39,8 @@ export function parseKeywords(rulesText: string): string[] {
   if (/\bstealth\b/.test(t))       kws.push("stealth");
   if (/\bburrow(ing)?\b/.test(t))  kws.push("burrowing");
   if (/\bward\b/.test(t))          kws.push("ward");
+  if (/\bsubmerge[d]?\b/.test(t))  kws.push("submerge");
+  if (/\bundying\b/.test(t))       kws.push("undying");
   return kws;
 }
 
@@ -54,6 +57,9 @@ export type SpellEffect =
   | { kind: "draw";       amount: number }       // draw X cards
   | { kind: "buff";       attack: number; defense: number } // +X/+Y this turn
   | { kind: "bounce" }                           // return strongest enemy to hand
+  | { kind: "destroy_site" }                    // destroy a target enemy site
+  | { kind: "steal" }                            // take control of a target enemy minion
+  | { kind: "exhaust" }                          // tap/exhaust a target enemy minion
   | { kind: "generic" };                         // fallback (cost-based ping)
 
 export function parseSpellEffect(rulesText: string): SpellEffect {
@@ -67,8 +73,17 @@ export function parseSpellEffect(rulesText: string): SpellEffect {
   const dmgMatch = t.match(/deal[s]?\s+(\d+)\s+damage/);
   if (dmgMatch) return { kind: "damage", amount: parseInt(dmgMatch[1]) };
 
+  // Steal / take control — check before destroy to avoid mis-matching "destroy a stolen minion"
+  if (/(?:gain|take)\s+control|steal\s+target/.test(t)) return { kind: "steal" };
+
+  // Destroy site — check before generic destroy
+  if (/destroy\b.*\bsite\b/.test(t)) return { kind: "destroy_site" };
+
   // Destroy ("destroy target")
   if (/\bdestroy\b/.test(t)) return { kind: "destroy" };
+
+  // Exhaust / tap a target
+  if (/\bexhaust\b|\btap\s+target\b/.test(t)) return { kind: "exhaust" };
 
   // Bounce ("return … to … hand")
   if (/return\b.*\bto\b.*\bhand\b/.test(t)) return { kind: "bounce" };
@@ -150,6 +165,99 @@ export function parseAuraEffect(rulesText: string): AuraEffect {
   }
 
   return fx;
+}
+
+// ─── Avatar abilities ─────────────────────────────────────────────────────────
+
+/**
+ * Structured representation of an avatar's passive or triggered ability.
+ * A single avatar may have multiple abilities (all are collected into an array).
+ */
+export type AvatarAbility =
+  /** Always-on stat/keyword bonus to all (or element-filtered) friendly minions. */
+  | { kind: "passive_buff"; attackBonus: number; defenseBonus: number; keywords: string[]; elementFilter: string | null }
+  /** Fires at the start of the avatar's turn. */
+  | { kind: "start_of_turn"; grant: "mana" | "draw" | "damage_enemy" | "heal"; amount: number }
+  /** Fires when any friendly minion dies. */
+  | { kind: "on_friendly_death"; grant: "damage_enemy" | "draw" | "mana"; amount: number }
+  /** Fires when the avatar places a site. */
+  | { kind: "on_site_placed"; grant: "draw" | "mana" | "damage_enemy"; amount: number }
+  /** Fires when the avatar casts a Magic spell. */
+  | { kind: "on_spell_cast"; grant: "draw" | "mana" | "damage_enemy"; amount: number }
+  /** The avatar itself carries a keyword (Stealth, Charge, etc.). */
+  | { kind: "avatar_keyword"; keyword: string };
+
+export function parseAvatarAbilities(rulesText: string): AvatarAbility[] {
+  const t = (rulesText ?? "").toLowerCase();
+  const abs: AvatarAbility[] = [];
+  const ELEMENTS = ["water", "earth", "fire", "air"];
+
+  // ── Passive minion stat buff ─────────────────────────────────────────────
+  // "Friendly minions get +1/+0" / "[element] minions you control have +0/+1"
+  const buffM = t.match(/(?:(\w+)\s+)?minions?(?:\s+you\s+control)?\s+(?:get|have|gain)\s+\+(\d+)\/\+(\d+)/);
+  if (buffM) {
+    const el = buffM[1] && ELEMENTS.includes(buffM[1]) ? buffM[1] : null;
+    abs.push({ kind: "passive_buff", attackBonus: parseInt(buffM[2]), defenseBonus: parseInt(buffM[3]), keywords: [], elementFilter: el });
+  }
+  // Passive keyword grants to minions ("friendly minions have/gain Airborne")
+  for (const kw of ["airborne", "charge", "lethal", "ranged", "burrowing", "ward", "stealth", "undying"]) {
+    if (new RegExp(`(?:friendly\\s+)?(?:\\w+\\s+)?minions?(?:\\s+you\\s+control)?\\s+(?:have|get|gain)\\s+${kw}`).test(t)) {
+      abs.push({ kind: "passive_buff", attackBonus: 0, defenseBonus: 0, keywords: [kw], elementFilter: null });
+    }
+  }
+
+  // ── Start-of-turn triggers ────────────────────────────────────────────────
+  const sotMana = t.match(/at\s+the\s+start\s+of\s+your\s+turn[^.]*?(?:gain|add)\s+(\d+)\s+mana/);
+  if (sotMana) abs.push({ kind: "start_of_turn", grant: "mana", amount: parseInt(sotMana[1]) });
+
+  const sotDraw = t.match(/at\s+the\s+start\s+of\s+your\s+turn[^.]*?draw\s+(?:a\s+card|(\d+))/);
+  if (sotDraw) abs.push({ kind: "start_of_turn", grant: "draw", amount: sotDraw[1] ? parseInt(sotDraw[1]) : 1 });
+
+  const sotDmg = t.match(/at\s+the\s+start\s+of\s+your\s+turn[^.]*?deal\s+(\d+)\s+damage/);
+  if (sotDmg) abs.push({ kind: "start_of_turn", grant: "damage_enemy", amount: parseInt(sotDmg[1]) });
+
+  const sotHeal = t.match(/at\s+the\s+start\s+of\s+your\s+turn[^.]*?(?:heal|restore|gain)\s+(\d+)\s+(?:life|health)/);
+  if (sotHeal) abs.push({ kind: "start_of_turn", grant: "heal", amount: parseInt(sotHeal[1]) });
+
+  // ── On-friendly-death triggers ────────────────────────────────────────────
+  const deathDmg  = t.match(/when(?:ever)?\s+(?:a\s+)?(?:friendly\s+)?minion[^.]*?dies[^.]*?deal\s+(\d+)\s+damage/);
+  if (deathDmg)  abs.push({ kind: "on_friendly_death", grant: "damage_enemy", amount: parseInt(deathDmg[1]) });
+
+  const deathDraw = t.match(/when(?:ever)?\s+(?:a\s+)?(?:friendly\s+)?minion[^.]*?dies[^.]*?draw\s+(?:a\s+card|(\d+))/);
+  if (deathDraw) abs.push({ kind: "on_friendly_death", grant: "draw", amount: deathDraw[1] ? parseInt(deathDraw[1]) : 1 });
+
+  const deathMana = t.match(/when(?:ever)?\s+(?:a\s+)?(?:friendly\s+)?minion[^.]*?dies[^.]*?(?:gain|add)\s+(\d+)\s+mana/);
+  if (deathMana) abs.push({ kind: "on_friendly_death", grant: "mana", amount: parseInt(deathMana[1]) });
+
+  // ── On-site-placed triggers ───────────────────────────────────────────────
+  const siteDraw = t.match(/when(?:ever)?\s+you\s+(?:place|play)\s+(?:a\s+)?site[^.]*?draw\s+(?:a\s+card|(\d+))/);
+  if (siteDraw) abs.push({ kind: "on_site_placed", grant: "draw", amount: siteDraw[1] ? parseInt(siteDraw[1]) : 1 });
+
+  const siteMana = t.match(/when(?:ever)?\s+you\s+(?:place|play)\s+(?:a\s+)?site[^.]*?(?:gain|add)\s+(\d+)\s+mana/);
+  if (siteMana) abs.push({ kind: "on_site_placed", grant: "mana", amount: parseInt(siteMana[1]) });
+
+  const siteDmg = t.match(/when(?:ever)?\s+you\s+(?:place|play)\s+(?:a\s+)?site[^.]*?deal\s+(\d+)\s+damage/);
+  if (siteDmg)  abs.push({ kind: "on_site_placed", grant: "damage_enemy", amount: parseInt(siteDmg[1]) });
+
+  // ── On-spell-cast triggers ────────────────────────────────────────────────
+  const spellDraw = t.match(/when(?:ever)?\s+you\s+cast\s+(?:a\s+)?(?:magic\s+)?(?:spell|card)[^.]*?draw\s+(?:a\s+card|(\d+))/);
+  if (spellDraw) abs.push({ kind: "on_spell_cast", grant: "draw", amount: spellDraw[1] ? parseInt(spellDraw[1]) : 1 });
+
+  const spellMana = t.match(/when(?:ever)?\s+you\s+cast\s+(?:a\s+)?(?:magic\s+)?(?:spell|card)[^.]*?(?:gain|add)\s+(\d+)\s+mana/);
+  if (spellMana) abs.push({ kind: "on_spell_cast", grant: "mana", amount: parseInt(spellMana[1]) });
+
+  const spellDmg = t.match(/when(?:ever)?\s+you\s+cast\s+(?:a\s+)?(?:magic\s+)?(?:spell|card)[^.]*?deal\s+(\d+)\s+damage/);
+  if (spellDmg)  abs.push({ kind: "on_spell_cast", grant: "damage_enemy", amount: parseInt(spellDmg[1]) });
+
+  // ── Avatar keywords ───────────────────────────────────────────────────────
+  for (const kw of ["airborne", "stealth", "charge", "lethal", "ranged", "ward"]) {
+    if (new RegExp(`\\bthis\\s+avatar\\s+(?:has|gains?)\\s+${kw}\\b`).test(t) ||
+        new RegExp(`^${kw}[,.]`).test(t)) {
+      abs.push({ kind: "avatar_keyword", keyword: kw });
+    }
+  }
+
+  return abs;
 }
 
 // ─── Grid positions & helpers ─────────────────────────────────────────────────
@@ -433,18 +541,30 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     let v = bm.card.attack;
     for (const a of auras)     if (a.attachedTo === bm) v += a.effect.attackBonus;
     for (const a of artifacts) if (a.attachedTo === bm) v += a.effect.attackBonus;
+    // Avatar passive buff
+    for (const ab of player(bm.owner).avatarCard.avatarAbilities ?? [])
+      if (ab.kind === "passive_buff" && (!ab.elementFilter || bm.card.elements.includes(ab.elementFilter)))
+        v += ab.attackBonus;
     return v;
   }
   function effDef(bm: BoardMinion): number {
     let v = bm.card.defense;
     for (const a of auras)     if (a.attachedTo === bm) v += a.effect.defenseBonus;
     for (const a of artifacts) if (a.attachedTo === bm) v += a.effect.defenseBonus;
+    // Avatar passive buff
+    for (const ab of player(bm.owner).avatarCard.avatarAbilities ?? [])
+      if (ab.kind === "passive_buff" && (!ab.elementFilter || bm.card.elements.includes(ab.elementFilter)))
+        v += ab.defenseBonus;
     return v;
   }
   function effKws(bm: BoardMinion): string[] {
     const kws = [...bm.card.keywords];
     for (const a of auras)     if (a.attachedTo === bm) for (const k of a.effect.keywords) if (!kws.includes(k)) kws.push(k);
     for (const a of artifacts) if (a.attachedTo === bm) for (const k of a.effect.keywords) if (!kws.includes(k)) kws.push(k);
+    // Avatar passive keyword grants
+    for (const ab of player(bm.owner).avatarCard.avatarAbilities ?? [])
+      if (ab.kind === "passive_buff" && (!ab.elementFilter || bm.card.elements.includes(ab.elementFilter)))
+        for (const k of ab.keywords) if (!kws.includes(k)) kws.push(k);
     return kws;
   }
   function bHasKw(bm: BoardMinion, kw: string): boolean { return effKws(bm).includes(kw); }
@@ -463,18 +583,45 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
   function removeMinion(bm: BoardMinion): void {
     const idx = minions.indexOf(bm);
     if (idx !== -1) minions.splice(idx, 1);
+    // Read Undying before clearing auras/artifacts (they might grant it)
+    const hasUndying = bHasKw(bm, "undying");
     // Clean up attached auras/artifacts
     for (let i = auras.length - 1; i >= 0; i--)
       if (auras[i].attachedTo === bm) auras.splice(i, 1);
     for (let i = artifacts.length - 1; i >= 0; i--)
       if (artifacts[i].attachedTo === bm) artifacts.splice(i, 1);
+    // Undying: return card to owner's hand instead of dying permanently
+    if (hasUndying) {
+      player(bm.owner).spellHand.push(bm.card);
+      emit(`  → ${bm.card.name} returns to hand (Undying)`);
+    }
+    // Avatar on_friendly_death triggers
+    const owner = player(bm.owner);
+    const opp   = opponent(bm.owner);
+    for (const ab of owner.avatarCard.avatarAbilities ?? []) {
+      if (ab.kind !== "on_friendly_death") continue;
+      if (ab.grant === "damage_enemy") {
+        damageAvatar(opp, ab.amount, owner.avatarCard.name);
+      } else if (ab.grant === "draw") {
+        for (let i = 0; i < ab.amount; i++) drawOne(owner);
+        emit(`  → ${owner.avatarCard.name} draws ${ab.amount} (death trigger)`);
+      } else if (ab.grant === "mana") {
+        owner.mana += ab.amount;
+        emit(`  → ${owner.avatarCard.name} gains ${ab.amount} mana (death trigger)`);
+      }
+    }
   }
 
   /** Can attacker see / legally target a defender? */
   function canTarget(atk: BoardMinion, def: BoardMinion): boolean {
     if (def.stealthy) return false;
+    // Burrowing: can only be targeted by burrowing, airborne, or ranged units
     if (bHasKw(def, "burrowing")) {
       return bHasKw(atk, "burrowing") || bHasKw(atk, "airborne") || bHasKw(atk, "ranged");
+    }
+    // Submerge: can only be targeted by submerged, airborne, or ranged units
+    if (bHasKw(def, "submerge")) {
+      return bHasKw(atk, "submerge") || bHasKw(atk, "airborne") || bHasKw(atk, "ranged");
     }
     return true;
   }
@@ -566,6 +713,20 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       if (art.owner === active.id && art.effect.kind === "structure") active.mana += art.effect.manaBonus;
 
     emit(`T${turn} [${active.id}] places site ${card.name} at (${pos.col},${pos.row}) → ${active.mana} mana · W${active.threshold.water}E${active.threshold.earth}F${active.threshold.fire}A${active.threshold.air}`);
+
+    // Avatar on_site_placed triggers
+    for (const ab of active.avatarCard.avatarAbilities ?? []) {
+      if (ab.kind !== "on_site_placed") continue;
+      if (ab.grant === "draw") {
+        for (let i = 0; i < ab.amount; i++) drawOne(active);
+        emit(`T${turn} [${active.id}] ${active.avatarCard.name} draws ${ab.amount} (site placed)`);
+      } else if (ab.grant === "mana") {
+        active.mana += ab.amount;
+        emit(`T${turn} [${active.id}] ${active.avatarCard.name} gains ${ab.amount} mana (site placed)`);
+      } else if (ab.grant === "damage_enemy") {
+        damageAvatar(opponent(active.id), ab.amount, active.avatarCard.name);
+      }
+    }
   }
 
   // ── Spell resolution ──────────────────────────────────────────────────────
@@ -643,6 +804,47 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
           removeMinion(victim);
           opp.spellHand.push(victim.card);
           emit(`T${turn} [${active.id}] casts ${cardName}: bounces ${victim.card.name} to hand`);
+        }
+        break;
+      }
+
+      case "destroy_site": {
+        const enemySites = ownedSites(grid, opp.id);
+        if (enemySites.length > 0) {
+          // Target the most advanced site — farthest from opponent's avatar (= closest to ours)
+          const target = [...enemySites].sort(
+            (a, b) => cardinalDist(b, opp.avatarPos) - cardinalDist(a, opp.avatarPos)
+          )[0];
+          const sq = getSquare(grid, target);
+          const siteName = sq.site?.name ?? "enemy site";
+          sq.owner = null; sq.site = undefined; sq.isRubble = true;
+          opp.mana      = countSites(grid, opp.id);
+          opp.threshold = siteThreshold(grid, opp.id);
+          emit(`T${turn} [${active.id}] casts ${cardName}: destroys ${siteName} at (${target.col},${target.row})`);
+        } else {
+          damageAvatar(opp, Math.max(1, cost), cardName);
+        }
+        break;
+      }
+
+      case "steal": {
+        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
+        if (targets.length > 0) {
+          const victim = [...targets].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+          victim.owner = active.id;
+          victim.tapped = true; victim.sick = true; // stolen minion is sick this turn
+          emit(`T${turn} [${active.id}] casts ${cardName}: steals ${victim.card.name}`);
+        }
+        break;
+      }
+
+      case "exhaust": {
+        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward") && !m.tapped);
+        if (targets.length > 0) {
+          // Exhaust the most dangerous untapped enemy
+          const victim = [...targets].sort((a, b) => effAtk(b) - effAtk(a))[0];
+          victim.tapped = true;
+          emit(`T${turn} [${active.id}] casts ${cardName}: exhausts ${victim.card.name}`);
         }
         break;
       }
@@ -743,6 +945,18 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         // Magic spell
         const fx = card.spellEffect ?? parseSpellEffect(card.rulesText);
         resolveSpellEffect(active, opp, fx, cost, card.name);
+        // Avatar on_spell_cast triggers
+        for (const ab of active.avatarCard.avatarAbilities ?? []) {
+          if (ab.kind !== "on_spell_cast") continue;
+          if (ab.grant === "draw") {
+            for (let i = 0; i < ab.amount; i++) drawOne(active);
+            emit(`T${turn} [${active.id}] ${active.avatarCard.name} draws ${ab.amount} (spell cast)`);
+          } else if (ab.grant === "mana") {
+            active.mana += ab.amount;
+          } else if (ab.grant === "damage_enemy") {
+            damageAvatar(opp, ab.amount, active.avatarCard.name);
+          }
+        }
         keepTrying = true;
       }
     }
@@ -888,6 +1102,24 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     for (const art of artifacts)
       if (art.owner === active.id && art.effect.kind === "structure") active.mana += art.effect.manaBonus;
 
+    // Start-of-turn avatar abilities
+    for (const ab of active.avatarCard.avatarAbilities ?? []) {
+      if (ab.kind !== "start_of_turn") continue;
+      if (ab.grant === "mana") {
+        active.mana += ab.amount;
+        emit(`T${turn} [${active.id}] ${active.avatarCard.name} gains ${ab.amount} mana (start of turn)`);
+      } else if (ab.grant === "draw") {
+        for (let i = 0; i < ab.amount; i++) drawOne(active);
+        emit(`T${turn} [${active.id}] ${active.avatarCard.name} draws ${ab.amount} (start of turn)`);
+      } else if (ab.grant === "damage_enemy") {
+        damageAvatar(opponent(active.id), ab.amount, active.avatarCard.name);
+      } else if (ab.grant === "heal") {
+        const maxLife = active.avatarCard.life > 0 ? active.avatarCard.life : 20;
+        active.avatarLife = Math.min(maxLife, active.avatarLife + ab.amount);
+        emit(`T${turn} [${active.id}] ${active.avatarCard.name} heals ${ab.amount} (start of turn)`);
+      }
+    }
+
     // Draw
     if (!(turn === 1 && active.id === "A")) drawOne(active);
 
@@ -1018,7 +1250,8 @@ export function formatReport(r: SimulationReport): string {
     `_Phase 3 model: shared 5×4 grid · site expansion · cardinal movement · same-square combat_`,
     `_Ranged (fires at 2 squares, no retaliation) · Airborne (8-dir) · Charge · Lethal · Stealth · Burrowing · Ward_`,
     `_Spell effects: Destroy · Damage · AoE · Draw · Bounce · Buff · Artifact persistence · Aura enchantments_`,
-    `_Does not model: unique card text · avatar second abilities · Submerge · Voidwalk_`,
+    `_Phase 4: Avatar abilities (start-of-turn, on-death, on-site, on-spell triggers; passive buffs) · Submerge · Undying · Destroy site · Steal · Exhaust_`,
+  `_Does not model: unique named card text · Voidwalk · Ambush · Spellcaster_`,
     ``,
     `### Sample Game (Game 1 of ${r.iterations})`,
     `Winner: Deck ${r.sampleGame.winner} in ${r.sampleGame.turns} turns`,
@@ -1068,9 +1301,10 @@ export function toSimCards(
       elements: (c.elements ?? []).map((e: { id: string }) => e.id),
       keywords: parseKeywords(rulesText),
       rulesText,
-      spellEffect:    type === "Magic"    ? parseSpellEffect(rulesText)    : undefined,
-      artifactEffect: type === "Artifact" ? parseArtifactEffect(rulesText) : undefined,
-      auraEffect:     type === "Aura"     ? parseAuraEffect(rulesText)     : undefined,
+      spellEffect:     type === "Magic"    ? parseSpellEffect(rulesText)     : undefined,
+      artifactEffect:  type === "Artifact" ? parseArtifactEffect(rulesText)  : undefined,
+      auraEffect:      type === "Aura"     ? parseAuraEffect(rulesText)      : undefined,
+      avatarAbilities: type === "Avatar"   ? parseAvatarAbilities(rulesText) : undefined,
     };
     for (let i = 0; i < (entry.quantity ?? 1); i++) out.push(simCard);
   }
