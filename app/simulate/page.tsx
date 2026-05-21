@@ -5,19 +5,31 @@ import type { SimulationReport } from "@/lib/simulator";
 import { GridBoard } from "./GridBoard";
 import { DeckPicker } from "./DeckPicker";
 
-function WinBar({ label, pct, color }: { label: string; pct: string; color: string }) {
-  const n = parseFloat(pct);
+/** Single tug-of-war bar: amber = A wins, gray = draws, sky = B wins */
+function MatchupBar({ winA, draws, winB }: { winA: number; draws: number; winB: number }) {
   return (
-    <div className="flex flex-col gap-1">
-      <div className="flex justify-between text-sm">
-        <span className="text-gray-300 font-medium">{label}</span>
-        <span className={`font-bold ${color}`}>{pct}</span>
+    <div className="flex flex-col gap-1.5">
+      <div className="flex h-5 rounded-full overflow-hidden gap-px bg-gray-950">
+        {winA > 0 && (
+          <div
+            className="bg-amber-500 h-full transition-all duration-700 first:rounded-l-full"
+            style={{ width: `${winA}%` }}
+          />
+        )}
+        {draws > 0 && (
+          <div className="bg-gray-600 h-full transition-all duration-700" style={{ width: `${draws}%` }} />
+        )}
+        {winB > 0 && (
+          <div
+            className="bg-sky-500 h-full transition-all duration-700 last:rounded-r-full"
+            style={{ width: `${winB}%` }}
+          />
+        )}
       </div>
-      <div className="h-4 bg-gray-800 rounded-full overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all duration-700 ${color.replace("text-", "bg-")}`}
-          style={{ width: `${n}%` }}
-        />
+      <div className="flex justify-between text-xs font-mono">
+        <span className="text-amber-400">{winA.toFixed(1)}%</span>
+        {draws > 0 && <span className="text-gray-500">{draws.toFixed(1)}% draws</span>}
+        <span className="text-sky-400">{winB.toFixed(1)}%</span>
       </div>
     </div>
   );
@@ -60,9 +72,11 @@ export default function SimulatePage() {
     }
   };
 
-  const drawRate = report
-    ? ((report.draws / report.iterations) * 100).toFixed(1) + "%"
-    : null;
+  const winANum   = report ? parseFloat(report.winRateA) : 0;
+  const winBNum   = report ? parseFloat(report.winRateB) : 0;
+  const drawsNum  = report ? (report.draws / report.iterations) * 100 : 0;
+  const leader    = winANum > winBNum ? "A" : winBNum > winANum ? "B" : null;
+  const margin    = report ? Math.abs(winANum - winBNum).toFixed(1) : "0";
 
   const snapshots = report?.sampleGame?.snapshots ?? [];
   const currentSnap = snapshots[snapIdx] ?? null;
@@ -140,45 +154,94 @@ export default function SimulatePage() {
         <div className="flex flex-col gap-6">
 
           {/* Overview */}
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-            <h2 className="text-lg font-bold text-white mb-1">
-              Results — {report.iterations.toLocaleString()} games
-            </h2>
-            <div className="text-sm text-gray-500 mb-5">
-              <span className="text-amber-300">{report.deckAName}</span>
-              <span className="text-gray-600 mx-2">vs</span>
-              <span className="text-sky-300">{report.deckBName}</span>
-            </div>
+          <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
 
-            <div className="flex flex-col gap-3 mb-5">
-              <WinBar
-                label={`Deck A: ${report.deckAName} (${report.avatarA})`}
-                pct={report.winRateA}
-                color="text-amber-400"
-              />
-              <WinBar
-                label={`Deck B: ${report.deckBName} (${report.avatarB})`}
-                pct={report.winRateB}
-                color="text-sky-400"
-              />
-              {drawRate && parseFloat(drawRate) > 0 && (
-                <WinBar label="Draws" pct={drawRate} color="text-gray-400" />
+            {/* Header */}
+            <div className="px-5 pt-5 pb-4 flex items-center justify-between border-b border-gray-800">
+              <h2 className="text-base font-semibold text-gray-400">
+                {report.iterations.toLocaleString()} games · {report.avgTurns} avg turns
+              </h2>
+              {leader ? (
+                <div className={`text-sm font-bold px-3 py-1 rounded-full ${
+                  leader === "A"
+                    ? "bg-amber-500/20 text-amber-400 border border-amber-500/30"
+                    : "bg-sky-500/20 text-sky-400 border border-sky-500/30"
+                }`}>
+                  Deck {leader} leads by {margin}%
+                </div>
+              ) : (
+                <div className="text-sm text-gray-500">Too close to call</div>
               )}
             </div>
 
-            <div className="grid grid-cols-3 gap-4 pt-4 border-t border-gray-800">
-              <div className="text-center">
-                <div className="text-2xl font-bold text-white">{report.avgTurns}</div>
-                <div className="text-xs text-gray-500 mt-1">Avg Turns</div>
+            {/* Side-by-side deck panels */}
+            <div className="grid grid-cols-2 divide-x divide-gray-800">
+              {/* Deck A */}
+              <div className={`p-5 flex flex-col gap-3 ${
+                leader === "A" ? "bg-amber-950/20" : ""
+              }`}>
+                <div className="flex items-start gap-2">
+                  <span className={`mt-0.5 text-lg leading-none ${
+                    leader === "A" ? "opacity-100" : "opacity-20"
+                  }`}>🏆</span>
+                  <div className="min-w-0">
+                    <div className="font-bold text-white text-sm leading-tight truncate">
+                      {report.deckAName}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5 truncate">
+                      {report.avatarA}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div className={`text-4xl font-black tabular-nums ${
+                    leader === "A" ? "text-amber-400" : "text-gray-400"
+                  }`}>
+                    {report.winRateA}
+                  </div>
+                  <div className="text-xs text-gray-600 mt-0.5">win rate</div>
+                </div>
+                <div className="text-sm text-gray-400">
+                  <span className="text-white font-semibold">{report.avgFinalLifeA}</span>
+                  <span className="text-gray-600"> avg life remaining</span>
+                </div>
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-amber-400">{report.avgFinalLifeA}</div>
-                <div className="text-xs text-gray-500 mt-1">Avg Life A</div>
+
+              {/* Deck B */}
+              <div className={`p-5 flex flex-col gap-3 ${
+                leader === "B" ? "bg-sky-950/20" : ""
+              }`}>
+                <div className="flex items-start gap-2">
+                  <span className={`mt-0.5 text-lg leading-none ${
+                    leader === "B" ? "opacity-100" : "opacity-20"
+                  }`}>🏆</span>
+                  <div className="min-w-0">
+                    <div className="font-bold text-white text-sm leading-tight truncate">
+                      {report.deckBName}
+                    </div>
+                    <div className="text-xs text-gray-500 mt-0.5 truncate">
+                      {report.avatarB}
+                    </div>
+                  </div>
+                </div>
+                <div>
+                  <div className={`text-4xl font-black tabular-nums ${
+                    leader === "B" ? "text-sky-400" : "text-gray-400"
+                  }`}>
+                    {report.winRateB}
+                  </div>
+                  <div className="text-xs text-gray-600 mt-0.5">win rate</div>
+                </div>
+                <div className="text-sm text-gray-400">
+                  <span className="text-white font-semibold">{report.avgFinalLifeB}</span>
+                  <span className="text-gray-600"> avg life remaining</span>
+                </div>
               </div>
-              <div className="text-center">
-                <div className="text-2xl font-bold text-sky-400">{report.avgFinalLifeB}</div>
-                <div className="text-xs text-gray-500 mt-1">Avg Life B</div>
-              </div>
+            </div>
+
+            {/* Tug-of-war bar */}
+            <div className="px-5 py-4 border-t border-gray-800">
+              <MatchupBar winA={winANum} draws={drawsNum} winB={winBNum} />
             </div>
           </div>
 
