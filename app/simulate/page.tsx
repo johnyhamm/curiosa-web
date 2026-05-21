@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import type { SimulationReport } from "@/lib/simulator";
+import { GridBoard } from "./GridBoard";
 
 function WinBar({ label, pct, color }: { label: string; pct: string; color: string }) {
   const n = parseFloat(pct);
@@ -28,6 +29,7 @@ export default function SimulatePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<SimulationReport | null>(null);
+  const [snapIdx, setSnapIdx] = useState(0);
 
   const run = async () => {
     if (!deckA.trim() || !deckB.trim()) {
@@ -37,6 +39,7 @@ export default function SimulatePage() {
     setLoading(true);
     setError(null);
     setReport(null);
+    setSnapIdx(0);
     try {
       const res = await fetch("/api/simulate", {
         method: "POST",
@@ -59,6 +62,16 @@ export default function SimulatePage() {
   const drawRate = report
     ? ((report.draws / report.iterations) * 100).toFixed(1) + "%"
     : null;
+
+  const snapshots = report?.sampleGame?.snapshots ?? [];
+  const currentSnap = snapshots[snapIdx] ?? null;
+
+  // Log lines that belong to the currently displayed turn
+  const turnLog = report?.sampleGame?.log.filter(
+    l => currentSnap && currentSnap.turn > 0
+      ? l.startsWith(`T${currentSnap.turn} `) || l.startsWith("  →")
+      : false
+  ) ?? [];
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10">
@@ -118,7 +131,7 @@ export default function SimulatePage() {
           disabled={loading}
           className="bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-gray-950 font-bold px-6 py-3 rounded-lg transition-colors text-base"
         >
-          {loading ? `Simulating ${iterations} games...` : "Run Simulation"}
+          {loading ? `Simulating ${iterations} games…` : "Run Simulation"}
         </button>
       </div>
 
@@ -132,6 +145,7 @@ export default function SimulatePage() {
       {/* Results */}
       {report && (
         <div className="flex flex-col gap-6">
+
           {/* Overview */}
           <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
             <h2 className="text-lg font-bold text-white mb-1">
@@ -175,12 +189,93 @@ export default function SimulatePage() {
             </div>
           </div>
 
-          {/* Sample game log */}
+          {/* Board viewer */}
+          {snapshots.length > 0 && currentSnap && (
+            <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
+              <div className="flex items-center justify-between mb-4">
+                <h3 className="text-base font-bold text-white">
+                  Board — Sample Game
+                </h3>
+                <span className="text-xs text-gray-500 font-mono">
+                  {currentSnap.turn === 0
+                    ? "Initial state"
+                    : `Turn ${currentSnap.turn} · Player ${currentSnap.activePlayer}`}
+                </span>
+              </div>
+
+              <GridBoard
+                snapshot={currentSnap}
+                avatarNameA={report.avatarA}
+                avatarNameB={report.avatarB}
+              />
+
+              {/* Turn navigation */}
+              <div className="mt-4 flex flex-col gap-2">
+                <input
+                  type="range"
+                  min={0}
+                  max={snapshots.length - 1}
+                  value={snapIdx}
+                  onChange={e => setSnapIdx(parseInt(e.target.value, 10))}
+                  className="w-full accent-amber-500"
+                />
+                <div className="flex items-center justify-between">
+                  <div className="flex gap-2">
+                    <button
+                      onClick={() => setSnapIdx(i => Math.max(0, i - 1))}
+                      disabled={snapIdx === 0}
+                      className="px-3 py-1 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 rounded-lg text-white transition-colors"
+                    >
+                      ← Prev
+                    </button>
+                    <button
+                      onClick={() => setSnapIdx(i => Math.min(snapshots.length - 1, i + 1))}
+                      disabled={snapIdx === snapshots.length - 1}
+                      className="px-3 py-1 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 rounded-lg text-white transition-colors"
+                    >
+                      Next →
+                    </button>
+                  </div>
+                  <span className="text-xs text-gray-600 font-mono">
+                    {snapIdx + 1} / {snapshots.length}
+                  </span>
+                </div>
+              </div>
+
+              {/* Events this turn */}
+              {turnLog.length > 0 && (
+                <div className="mt-3 bg-gray-950 rounded-lg p-3">
+                  <div className="text-xs text-gray-600 mb-1.5 font-medium uppercase tracking-wide">
+                    Turn {currentSnap.turn} events
+                  </div>
+                  <div className="font-mono text-xs space-y-0.5 max-h-28 overflow-y-auto">
+                    {turnLog.map((line, i) => (
+                      <div
+                        key={i}
+                        className={
+                          line.includes("[A]") ? "text-amber-300/80" :
+                          line.includes("[B]") ? "text-sky-300/80"   :
+                          "text-gray-500"
+                        }
+                      >
+                        {line}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Full log */}
           {report.sampleGame && (
             <div className="bg-gray-900 border border-gray-800 rounded-xl p-5">
-              <h3 className="text-base font-bold text-white mb-3">
-                Sample Game — Winner: Deck {report.sampleGame.winner} in {report.sampleGame.turns} turns
+              <h3 className="text-base font-bold text-white mb-1">
+                Full Log — Winner: Deck {report.sampleGame.winner} in {report.sampleGame.turns} turns
               </h3>
+              <div className="text-xs text-gray-600 mb-3">
+                Final life — A: {report.sampleGame.finalLifeA} / B: {report.sampleGame.finalLifeB}
+              </div>
               <div className="font-mono text-xs text-gray-400 space-y-0.5 max-h-64 overflow-y-auto bg-gray-950 rounded-lg p-3">
                 {report.sampleGame.log.length === 0 ? (
                   <p className="text-gray-600 italic">No log entries.</p>
@@ -189,11 +284,9 @@ export default function SimulatePage() {
                     <div
                       key={i}
                       className={
-                        line.includes("[A]")
-                          ? "text-amber-300/80"
-                          : line.includes("[B]")
-                          ? "text-sky-300/80"
-                          : "text-gray-500"
+                        line.includes("[A]") ? "text-amber-300/80" :
+                        line.includes("[B]") ? "text-sky-300/80"   :
+                        "text-gray-500"
                       }
                     >
                       {line}
@@ -201,11 +294,9 @@ export default function SimulatePage() {
                   ))
                 )}
               </div>
-              <div className="mt-2 text-xs text-gray-600">
-                Final life — Deck A: {report.sampleGame.finalLifeA} / Deck B: {report.sampleGame.finalLifeB}
-              </div>
             </div>
           )}
+
         </div>
       )}
 

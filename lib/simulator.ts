@@ -425,12 +425,49 @@ function resolveFight(attacker: BoardMinion, defender: BoardMinion): FightResult
   };
 }
 
+// ─── Board snapshot types ─────────────────────────────────────────────────────
+
+export interface MinionState {
+  name: string;
+  owner: "A" | "B";
+  attack: number;
+  defense: number;
+  tapped: boolean;
+  sick: boolean;
+  keywords: string[];
+}
+
+export interface SquareState {
+  siteOwner: "A" | "B" | null;
+  siteName: string | null;
+  isRubble: boolean;
+  minion: MinionState | null;
+  isAvatarA: boolean;
+  isAvatarB: boolean;
+}
+
+/** One snapshot of the 5×4 grid captured at the end of each turn. */
+export interface BoardSnapshot {
+  turn: number;
+  activePlayer: "A" | "B";
+  lifeA: number;
+  lifeB: number;
+  manaA: number;
+  manaB: number;
+  sitesA: number;
+  sitesB: number;
+  /** squares[row][col], rows 0-3, cols 0-4 */
+  squares: SquareState[][];
+}
+
 // ─── Game result types ────────────────────────────────────────────────────────
 
 export interface GameResult {
   winner: "A" | "B" | "draw";
   turns: number;
   log: string[];
+  /** Per-turn board snapshots (populated only when keepLog = true) */
+  snapshots: BoardSnapshot[];
   finalLifeA: number;
   finalLifeB: number;
 }
@@ -446,7 +483,45 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
   const minions: BoardMinion[] = [];
 
   const log: string[] = [];
+  const snapshots: BoardSnapshot[] = [];
   const emit = (msg: string) => { if (keepLog) log.push(msg); };
+
+  /** Capture the full board state into a snapshot */
+  function captureSnapshot(currentTurn: number, active: "A" | "B"): BoardSnapshot {
+    const squares: SquareState[][] = Array.from({ length: ROWS }, (_, r) =>
+      Array.from({ length: COLS }, (_, c) => {
+        const sq  = getSquare(grid, { col: c, row: r });
+        const bm  = minions.find(m => m.pos.col === c && m.pos.row === r);
+        return {
+          siteOwner: sq.owner,
+          siteName:  sq.site?.name ?? null,
+          isRubble:  sq.isRubble,
+          minion: bm ? {
+            name:     bm.card.name,
+            owner:    bm.owner,
+            attack:   bm.card.attack,
+            defense:  bm.card.defense,
+            tapped:   bm.tapped,
+            sick:     bm.sick,
+            keywords: bm.card.keywords,
+          } : null,
+          isAvatarA: pA.avatarPos.col === c && pA.avatarPos.row === r,
+          isAvatarB: pB.avatarPos.col === c && pB.avatarPos.row === r,
+        };
+      })
+    );
+    return {
+      turn: currentTurn,
+      activePlayer: active,
+      lifeA:  Math.max(0, pA.avatarLife),
+      lifeB:  Math.max(0, pB.avatarLife),
+      manaA:  pA.mana,
+      manaB:  pB.mana,
+      sitesA: countSites(grid, "A"),
+      sitesB: countSites(grid, "B"),
+      squares,
+    };
+  }
 
   function allMinions(): BoardMinion[] { return minions; }
   function friendlyMinions(id: "A" | "B"): BoardMinion[]  { return minions.filter(m => m.owner === id); }
@@ -728,6 +803,8 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
   // ─── Main turn loop ──────────────────────────────────────────────────────
 
   let turn = 0;
+  // Capture initial board state (turn 0) before any actions
+  if (keepLog) snapshots.push(captureSnapshot(0, "A"));
 
   while (turn < MAX_TURNS && pA.avatarLife > 0 && pB.avatarLife > 0) {
     turn++;
@@ -762,6 +839,9 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     // ── End of turn: clear all temp damage ───────────────────────────────────
     for (const m of allMinions()) m.tempDamage = 0;
 
+    // Capture board state after all actions this turn
+    if (keepLog) snapshots.push(captureSnapshot(turn, active.id));
+
     void passive; // passive player referenced through pA/pB above
   }
 
@@ -778,6 +858,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     winner,
     turns: turn,
     log,
+    snapshots,
     finalLifeA: Math.max(0, pA.avatarLife),
     finalLifeB: Math.max(0, pB.avatarLife),
   };
