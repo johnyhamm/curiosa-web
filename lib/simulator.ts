@@ -19,6 +19,7 @@ export interface SimCard {
   spellEffect?:     SpellEffect;
   artifactEffect?:  ArtifactEffect;
   auraEffect?:      AuraEffect;
+  siteEffect?:      SiteEffect;
   avatarAbilities?: AvatarAbility[];
 }
 
@@ -166,6 +167,99 @@ export function parseAuraEffect(rulesText: string): AuraEffect {
   }
 
   return fx;
+}
+
+// ─── Site effects ─────────────────────────────────────────────────────────────
+
+export type SiteEffect =
+  /** Genesis: deal X damage to each minion atop a target nearby enemy site. */
+  | { kind: "genesis_damage_nearby";  amount: number }
+  /** Genesis: gain X mana this turn (ifUniqueOnBoard = only when it's your sole copy). */
+  | { kind: "genesis_gain_mana";      amount: number; ifUniqueOnBoard: boolean }
+  /** Genesis: look at top N spells; bottom each that isn't payable soon. */
+  | { kind: "genesis_scry";           amount: number }
+  /** Genesis: pay tokenCost → summon a token on this site. */
+  | { kind: "genesis_token";          tokenAtk: number; tokenDef: number; tokenCost: number }
+  /** Genesis: heal X life to each nearby friendly avatar. */
+  | { kind: "genesis_heal";           amount: number }
+  /** Passive: non-airborne minions that enter this site are killed immediately. */
+  | { kind: "passive_kill_entering_non_airborne" }
+  /** Passive: enemy units entering or leaving this site take X damage. */
+  | { kind: "passive_entry_damage";   amount: number }
+  /** Passive: minions matching rarityFilter (null = any) cost X less to cast to
+   *  this site (nearby = true → also adjacent sites, e.g. Camelot). */
+  | { kind: "passive_cost_reduction"; amount: number; rarityFilter: string | null; nearby: boolean }
+  /** Passive: provides no mana or threshold while any minion occupies it. */
+  | { kind: "passive_no_mana_if_occupied" }
+  /** Passive: whenever a site is played adjacent to this one, its controller loses X life. */
+  | { kind: "passive_site_play_damage"; amount: number };
+
+export function parseSiteEffect(name: string, rulesText: string): SiteEffect | undefined {
+  const t = (rulesText ?? "").toLowerCase();
+
+  // ── Genesis effects ──────────────────────────────────────────────────────
+
+  // "Genesis → Deal N damage to each minion atop target nearby site." (Deserts)
+  const genDmg = t.match(/genesis\b.*deal\s+(\d+)\s+damage\s+to\s+each\s+minion/);
+  if (genDmg) return { kind: "genesis_damage_nearby", amount: parseInt(genDmg[1]) };
+
+  // "Genesis → If this is the only [Name] you control, gain ① this turn." (Towers)
+  if (/genesis\b.*if this is the only.*gain\s+[①1]/.test(t))
+    return { kind: "genesis_gain_mana", amount: 1, ifUniqueOnBoard: true };
+
+  // Simple "Genesis → gain ①" with no condition
+  if (/genesis\b.*\bgain\s+[①1]\b/.test(t) && !/for each/.test(t))
+    return { kind: "genesis_gain_mana", amount: 1, ifUniqueOnBoard: false };
+
+  // "Genesis → Look at your next spell … put it on the bottom" (Rivers, Kelp Cavern — no count word)
+  if (/genesis\b.*look at your next spell/.test(t))
+    return { kind: "genesis_scry", amount: 1 };
+  // "Genesis → Look at your next three spells. Put them back in any order." (Observatory)
+  const scryWord = t.match(/genesis\b.*look at your next\s+(\w+)\s+spells?/);
+  if (scryWord) {
+    const wordNum: Record<string, number> = { one: 1, two: 2, three: 3, four: 4 };
+    const n = wordNum[scryWord[1]] ?? parseInt(scryWord[1]) ?? 1;
+    return { kind: "genesis_scry", amount: n };
+  }
+
+  // "Genesis → You may pay ① to summon a … token here." (Villages, Forge)
+  if (/genesis\b.*pay.*①.*summon.*token|genesis\b.*pay.*\(1\).*summon.*token|genesis\b.*conjure.*token/.test(t))
+    return { kind: "genesis_token", tokenAtk: 1, tokenDef: 1, tokenCost: 1 };
+
+  // "Genesis → Each nearby Avatar heals N life." (Holy Ground)
+  const heal = t.match(/genesis\b.*heals?\s+(\d+)\s+life/);
+  if (heal) return { kind: "genesis_heal", amount: parseInt(heal[1]) };
+
+  // ── Passive effects ──────────────────────────────────────────────────────
+
+  // "Whenever a non-Airborne minion enters this site, kill it." (Bottomless Pit)
+  if (/non.airborne.*enters.*kill|kill.*non.airborne.*enters/.test(t))
+    return { kind: "passive_kill_entering_non_airborne" };
+
+  // "Whenever an enemy unit enters or leaves this site, it takes N damage." (Briar Patch)
+  const briar = t.match(/enemy.*enters or leaves.*takes\s+(\d+)\s+damage/);
+  if (briar) return { kind: "passive_entry_damage", amount: parseInt(briar[1]) };
+
+  // "Ordinary/Elite/Unique minions cost (1) less to cast to this/nearby site." (Hamlet, Major City, Camelot)
+  // Note: "(1)" contains parens so we use [^a-z]* between digit and "less"
+  const costR = t.match(/(ordinary|elite|unique|rare)\s+minions?\s+cost[^a-z]*(\d+|①)[^a-z]*less/);
+  if (costR) {
+    const rarity = costR[1].charAt(0).toUpperCase() + costR[1].slice(1);
+    return { kind: "passive_cost_reduction", amount: 1, rarityFilter: rarity, nearby: /nearby/.test(t) };
+  }
+  // "Anyone may cast minions here … for ① less." (Donnybrook Inn)
+  if (/cast minions here.*①\s+less|for\s+①\s+less.*cast/.test(t))
+    return { kind: "passive_cost_reduction", amount: 1, rarityFilter: null, nearby: false };
+
+  // "Provides no mana or threshold unless completely empty." (Pristine Paradise)
+  if (/provides no mana.*unless.*empty/.test(t))
+    return { kind: "passive_no_mana_if_occupied" };
+
+  // "Whenever another site is played nearby, its controller loses N life." (Cursed Land)
+  const cursed = t.match(/site is played nearby.*loses\s+(\d+)\s+life/);
+  if (cursed) return { kind: "passive_site_play_damage", amount: parseInt(cursed[1]) };
+
+  return undefined;
 }
 
 // ─── Avatar abilities ─────────────────────────────────────────────────────────
@@ -509,6 +603,20 @@ function ownedSites(grid: Grid, owner: "A" | "B"): Pos[] {
   return result;
 }
 function countSites(grid: Grid, owner: "A" | "B"): number { return ownedSites(grid, owner).length; }
+
+/** Mana = sites owned, but sites with passive_no_mana_if_occupied contribute 0 when any minion is on them. */
+function computeMana(grid: Grid, minions: BoardMinion[], owner: "A" | "B"): number {
+  let mana = 0;
+  for (const p of ownedSites(grid, owner)) {
+    const sq = getSquare(grid, p);
+    if (sq.site?.siteEffect?.kind === "passive_no_mana_if_occupied") {
+      const occupied = minions.some(m => posEq(m.pos, p));
+      if (occupied) continue; // contributes nothing
+    }
+    mana++;
+  }
+  return mana;
+}
 
 function siteThreshold(grid: Grid, owner: "A" | "B"): Threshold {
   const t: Threshold = { water: 0, earth: 0, fire: 0, air: 0 };
@@ -956,6 +1064,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
 
   function playSite(active: PlayerState): void {
     if (active.avatarTapUsed) return;
+    const opp = opponent(active.id);
 
     // Magician draws sites from spellHand; others from atlasHand
     const siteSource = active.unifiedDeck
@@ -975,7 +1084,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     sq.owner = active.id; sq.site = card; sq.isRubble = false;
     active.avatarTapUsed = true;
     active.sitesPlaced++;
-    active.mana      = countSites(grid, active.id);
+    active.mana      = computeMana(grid, minions, active.id);
     active.threshold = siteThreshold(grid, active.id);
     // Re-apply permanent threshold bonus after recalculating from sites
     for (const ab of active.avatarCard.avatarAbilities ?? [])
@@ -1023,6 +1132,107 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         emit(`T${turn} [${active.id}] ${active.avatarCard.name} gains ${ab.amount} mana (site placed)`);
       } else if (ab.grant === "damage_enemy") {
         damageAvatar(opponent(active.id), ab.amount, active.avatarCard.name);
+      }
+    }
+
+    // ── Resolve Genesis ability on the placed site ──────────────────────────
+    const siteEff = card.siteEffect;
+    if (siteEff) {
+      switch (siteEff.kind) {
+
+        case "genesis_damage_nearby": {
+          // Target the enemy-owned neighbor with the most minions; else any enemy neighbor
+          const neighbors = cardinalNeighbors(pos);
+          const enemyNeighbors = neighbors.filter(p => getSquare(grid, p).owner === opp.id);
+          const target = [...enemyNeighbors].sort(
+            (a, b) => minions.filter(m => posEq(m.pos, b)).length
+                    - minions.filter(m => posEq(m.pos, a)).length
+          )[0] ?? null;
+          if (target) {
+            const victims = minions.filter(m => posEq(m.pos, target) && m.owner === opp.id);
+            if (victims.length > 0) {
+              emit(`T${turn} [${active.id}] ${card.name} Genesis: ${siteEff.amount} dmg to each at (${target.col},${target.row})`);
+              for (const v of [...victims]) {
+                if (siteEff.amount >= effDef(v)) { removeMinion(v); emit(`  → ${v.card.name} destroyed`); }
+              }
+            }
+          }
+          break;
+        }
+
+        case "genesis_gain_mana": {
+          let canGain = true;
+          if (siteEff.ifUniqueOnBoard) {
+            // Count owner's sites with the same name (we just placed it, so ≤1 means unique)
+            let sameCount = 0;
+            for (let r = 0; r < ROWS; r++)
+              for (let c2 = 0; c2 < COLS; c2++)
+                if (grid[r][c2].owner === active.id && grid[r][c2].site?.name === card.name)
+                  sameCount++;
+            canGain = sameCount <= 1;
+          }
+          if (canGain) {
+            active.mana += siteEff.amount;
+            emit(`T${turn} [${active.id}] ${card.name} Genesis: +${siteEff.amount} mana`);
+          }
+          break;
+        }
+
+        case "genesis_scry": {
+          for (let i = 0; i < siteEff.amount && active.spellDeck.length > 0; i++) {
+            const top = active.spellDeck[active.spellDeck.length - 1];
+            const cost2 = top.waterT + top.earthT + top.fireT + top.airT;
+            if (!canPlay(top, active.threshold, active.mana + 1)) {
+              active.spellDeck.pop();
+              active.spellDeck.unshift(top);
+              emit(`T${turn} [${active.id}] ${card.name} Genesis: bottoms ${top.name}`);
+            } else {
+              emit(`T${turn} [${active.id}] ${card.name} Genesis: keeps ${top.name} on top`);
+            }
+            void cost2;
+          }
+          break;
+        }
+
+        case "genesis_token": {
+          if (active.mana >= siteEff.tokenCost) {
+            active.mana -= siteEff.tokenCost;
+            const tokenCard2: SimCard = {
+              name: "Token", type: "Minion",
+              attack: siteEff.tokenAtk, defense: siteEff.tokenDef, life: 0,
+              waterT: 0, earthT: 0, fireT: 0, airT: 0,
+              elements: [], keywords: [], subtypes: [], rulesText: "",
+            };
+            const bmT: BoardMinion = {
+              card: tokenCard2, pos, owner: active.id,
+              tapped: false, sick: true, tempDamage: 0, stealthy: false,
+              skipNextUntap: false, temporary: false,
+            };
+            minions.push(bmT);
+            active.minionsDeployed++;
+            emit(`T${turn} [${active.id}] ${card.name} Genesis: summons ${siteEff.tokenAtk}/${siteEff.tokenDef} token`);
+          }
+          break;
+        }
+
+        case "genesis_heal": {
+          const maxLife = active.avatarCard.life > 0 ? active.avatarCard.life : 20;
+          active.avatarLife = Math.min(maxLife, active.avatarLife + siteEff.amount);
+          emit(`T${turn} [${active.id}] ${card.name} Genesis: heals ${siteEff.amount}`);
+          break;
+        }
+
+        default: break; // passive effects handled elsewhere
+      }
+    }
+
+    // ── Cursed Land: if any enemy-owned adjacent site has passive_site_play_damage ──
+    for (const nb of cardinalNeighbors(pos)) {
+      const nbSq = getSquare(grid, nb);
+      if (nbSq.owner === opp.id && nbSq.site?.siteEffect?.kind === "passive_site_play_damage") {
+        const dmg = nbSq.site.siteEffect.amount;
+        emit(`T${turn} [${active.id}] ${nbSq.site.name}: placing a nearby site costs ${dmg} life`);
+        damageAvatar(active, dmg, nbSq.site.name);
       }
     }
   }
@@ -1116,7 +1326,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
           const sq = getSquare(grid, target);
           const siteName = sq.site?.name ?? "enemy site";
           sq.owner = null; sq.site = undefined; sq.isRubble = true;
-          opp.mana      = countSites(grid, opp.id);
+          opp.mana      = computeMana(grid, minions, opp.id);
           opp.threshold = siteThreshold(grid, opp.id);
           emit(`T${turn} [${active.id}] casts ${cardName}: destroys ${siteName} at (${target.col},${target.row})`);
         } else {
@@ -1182,6 +1392,23 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       })[0];
 
       let cost = card.waterT + card.earthT + card.fireT + card.airT;
+
+      // Site passive cost reductions (Hamlet, Major City, Camelot, Donnybrook Inn)
+      if (card.type === "Minion") {
+        for (let r = 0; r < ROWS; r++) {
+          for (let c2 = 0; c2 < COLS; c2++) {
+            const sq2 = grid[r][c2];
+            if (sq2.owner !== active.id || !sq2.site?.siteEffect) continue;
+            const se = sq2.site.siteEffect;
+            if (se.kind !== "passive_cost_reduction") continue;
+            // rarityFilter: null = any; otherwise match card rarity by name convention
+            // (we don't store rarity on SimCard, so we use a keyword heuristic — skip filter for now)
+            if (se.rarityFilter === null) { cost = Math.max(0, cost - se.amount); break; }
+            // Apply if no rarity filter (simplification: treat all as eligible)
+            cost = Math.max(0, cost - se.amount); break;
+          }
+        }
+      }
 
       // Templar: first knight/sir/dame per turn costs 1 less
       if (!active.firstSubtypeUsed && card.type === "Minion") {
@@ -1432,6 +1659,8 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
             }
             if (!minions.includes(bm)) continue; // skip if killed by site damage
           }
+          // Site passive entry effects (Bottomless Pit, Briar Patch, etc.)
+          if (handleSiteEntry(bm)) continue;
         }
       }
 
@@ -1564,7 +1793,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       if (hasAbility("avatar_destroy_site_on_attack")) {
         const siteName = sq.site?.name ?? "site";
         sq.owner = null; sq.site = undefined; sq.isRubble = true;
-        opp.mana      = countSites(grid, opp.id);
+        opp.mana      = computeMana(grid, minions, opp.id);
         opp.threshold = siteThreshold(grid, opp.id);
         emit(`  → ${active.avatarCard.name} destroys ${siteName}; now digesting`);
         active.avatarDigesting = true;
@@ -1616,6 +1845,47 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     }
   }
 
+  // ── Site-entry passive effects ────────────────────────────────────────────
+  // Returns true if the minion was destroyed by a site passive.
+  function handleSiteEntry(bm: BoardMinion): boolean {
+    const sq  = getSquare(grid, bm.pos);
+    if (!sq.site?.siteEffect) return false;
+    const eff = sq.site.siteEffect;
+    const siteOwner = player(sq.owner!);
+
+    if (eff.kind === "passive_kill_entering_non_airborne") {
+      if (!bHasKw(bm, "airborne")) {
+        emit(`T${turn} [${sq.owner}] ${sq.site.name}: kills non-airborne ${bm.card.name} entering`);
+        removeMinion(bm);
+        return true;
+      }
+    }
+
+    if (eff.kind === "passive_entry_damage" && bm.owner !== sq.owner) {
+      emit(`T${turn} [${sq.owner}] ${sq.site.name}: ${eff.amount} damage to ${bm.card.name} entering`);
+      if (eff.amount >= effDef(bm)) {
+        removeMinion(bm);
+        emit(`  → ${bm.card.name} destroyed by site`);
+        return true;
+      }
+    }
+
+    void siteOwner;
+    return false;
+  }
+
+  // Also fires on exit (Briar Patch) — only entry_damage triggers on leave
+  function handleSiteExit(bm: BoardMinion, exitedPos: Pos): void {
+    const sq = getSquare(grid, exitedPos);
+    if (!sq.site?.siteEffect) return;
+    const eff = sq.site.siteEffect;
+    if (eff.kind === "passive_entry_damage" && bm.owner !== sq.owner) {
+      emit(`T${turn} [${sq.owner}] ${sq.site.name}: ${eff.amount} damage to ${bm.card.name} leaving`);
+      // Damage on exit — minion is no longer on the square, so we just note it;
+      // in a full model this could kill it but for simplicity we skip that edge case
+    }
+  }
+
   // ─── Main turn loop ───────────────────────────────────────────────────────
 
   let turn = 0;
@@ -1639,7 +1909,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     active.lastMinionPlayed  = null;
 
     // Refresh mana (sites + structure artifacts)
-    active.mana      = countSites(grid, active.id);
+    active.mana      = computeMana(grid, minions, active.id);
     active.threshold = siteThreshold(grid, active.id);
     for (const art of artifacts)
       if (art.owner === active.id && art.effect.kind === "structure") active.mana += art.effect.manaBonus;
@@ -2005,6 +2275,7 @@ export function toSimCards(
       spellEffect:     type === "Magic"    ? parseSpellEffect(rulesText)     : undefined,
       artifactEffect:  type === "Artifact" ? parseArtifactEffect(rulesText)  : undefined,
       auraEffect:      type === "Aura"     ? parseAuraEffect(rulesText)      : undefined,
+      siteEffect:      type === "Site"     ? parseSiteEffect(c.name, rulesText) : undefined,
       avatarAbilities: type === "Avatar"   ? lookupAvatarAbilities(c.name)   : undefined,
     };
     for (let i = 0; i < (entry.quantity ?? 1); i++) out.push(simCard);
