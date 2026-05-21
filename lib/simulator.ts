@@ -1,39 +1,33 @@
-// ─── Types ────────────────────────────────────────────────────────────────────
+// ─── SimCard ──────────────────────────────────────────────────────────────────
 
 export interface SimCard {
   name: string;
   type: "Avatar" | "Site" | "Minion" | "Magic" | "Artifact" | "Aura";
   attack: number;
   defense: number;
-  /**
-   * Avatar starting life total (from guardian.life in the card DB).
-   * Distinct from `defense` (combat armour).  0 means unknown → falls back to 20.
-   */
+  /** Avatar starting life (guardian.life). 0 = unknown → falls back to 20. */
   life: number;
   waterT: number;
   earthT: number;
   fireT: number;
   airT: number;
-  /** Elements this card contributes as a site */
   elements: string[];
-  /** Keywords parsed from rules text */
   keywords: string[];
   rulesText: string;
+  // Pre-parsed effects (set by toSimCards; undefined for non-spell/artifact/aura cards)
+  spellEffect?:    SpellEffect;
+  artifactEffect?: ArtifactEffect;
+  auraEffect?:     AuraEffect;
 }
 
 export interface DeckSpec {
   name: string;
   avatar: SimCard;
-  /** Pre-expanded by quantity; mix of Sites and non-Sites */
   cards: SimCard[];
 }
 
 // ─── Keyword parser ───────────────────────────────────────────────────────────
 
-/**
- * Parse keywords from a card's rules text.
- * Exported so callers can pre-build keyword lists when constructing SimCards.
- */
 export function parseKeywords(rulesText: string): string[] {
   const t = (rulesText ?? "").toLowerCase();
   const kws: string[] = [];
@@ -51,14 +45,114 @@ function hasKw(card: SimCard, kw: string): boolean {
   return card.keywords.includes(kw);
 }
 
+// ─── Spell effects ────────────────────────────────────────────────────────────
+
+export type SpellEffect =
+  | { kind: "destroy" }                         // unconditionally remove a minion
+  | { kind: "damage";     amount: number }       // deal X to minion or avatar
+  | { kind: "damage_all"; amount: number }       // deal X to EVERY enemy minion (AoE)
+  | { kind: "draw";       amount: number }       // draw X cards
+  | { kind: "buff";       attack: number; defense: number } // +X/+Y this turn
+  | { kind: "bounce" }                           // return strongest enemy to hand
+  | { kind: "generic" };                         // fallback (cost-based ping)
+
+export function parseSpellEffect(rulesText: string): SpellEffect {
+  const t = (rulesText ?? "").toLowerCase();
+
+  // AoE damage ("deal X damage to all / each") — check before single-target
+  const aoeMatch = t.match(/deal[s]?\s+(\d+)\s+damage\s+to\s+(all|each)/);
+  if (aoeMatch) return { kind: "damage_all", amount: parseInt(aoeMatch[1]) };
+
+  // Single-target damage ("deal X damage")
+  const dmgMatch = t.match(/deal[s]?\s+(\d+)\s+damage/);
+  if (dmgMatch) return { kind: "damage", amount: parseInt(dmgMatch[1]) };
+
+  // Destroy ("destroy target")
+  if (/\bdestroy\b/.test(t)) return { kind: "destroy" };
+
+  // Bounce ("return … to … hand")
+  if (/return\b.*\bto\b.*\bhand\b/.test(t)) return { kind: "bounce" };
+
+  // Draw ("draw X")
+  const drawMatch = t.match(/\bdraw\s+(\d+)\b/);
+  if (drawMatch) return { kind: "draw", amount: parseInt(drawMatch[1]) };
+
+  // Buff ("+X/+Y until end of turn" or just "+X/+Y")
+  const buffMatch = t.match(/\+(\d+)\/\+(\d+)/);
+  if (buffMatch) return { kind: "buff", attack: parseInt(buffMatch[1]), defense: parseInt(buffMatch[2]) };
+
+  return { kind: "generic" };
+}
+
+// ─── Artifact effects ─────────────────────────────────────────────────────────
+
+export interface ArtifactEffect {
+  kind: "equipment" | "structure" | "generic";
+  attackBonus:  number;
+  defenseBonus: number;
+  manaBonus:    number;
+  keywords:     string[];  // keywords granted to bearer/nearby minions
+}
+
+export function parseArtifactEffect(rulesText: string): ArtifactEffect {
+  const t = (rulesText ?? "").toLowerCase();
+  const fx: ArtifactEffect = {
+    kind: "generic", attackBonus: 0, defenseBonus: 0, manaBonus: 0, keywords: [],
+  };
+
+  // Equipment vs structure
+  if (/\bequip|\bbearer\b|\bwielder\b/.test(t))          fx.kind = "equipment";
+  else if (/\bstructure\b|\bbuilding\b|\bfortif/.test(t)) fx.kind = "structure";
+
+  // +X/+Y bonus
+  const statMatch = t.match(/\+(\d+)\/\+(\d+)/);
+  if (statMatch) {
+    fx.attackBonus  = parseInt(statMatch[1]);
+    fx.defenseBonus = parseInt(statMatch[2]);
+    if (fx.kind === "generic") fx.kind = "equipment";
+  }
+
+  // Mana bonus
+  const manaMatch = t.match(/\+\s*(\d+)\s*mana/);
+  if (manaMatch) {
+    fx.manaBonus = parseInt(manaMatch[1]);
+    if (fx.kind === "generic") fx.kind = "structure";
+  }
+
+  // Keyword grants
+  for (const kw of ["airborne", "charge", "lethal", "ranged", "burrowing", "ward", "stealth"]) {
+    if (new RegExp(`\\b(grants?|gains?)\\s+${kw}\\b`).test(t)) fx.keywords.push(kw);
+  }
+
+  return fx;
+}
+
+// ─── Aura effects ─────────────────────────────────────────────────────────────
+
+export interface AuraEffect {
+  attackBonus:  number;
+  defenseBonus: number;
+  keywords:     string[];  // keywords granted to enchanted unit
+}
+
+export function parseAuraEffect(rulesText: string): AuraEffect {
+  const t = (rulesText ?? "").toLowerCase();
+  const fx: AuraEffect = { attackBonus: 0, defenseBonus: 0, keywords: [] };
+
+  const statMatch = t.match(/\+(\d+)\/\+(\d+)/);
+  if (statMatch) {
+    fx.attackBonus  = parseInt(statMatch[1]);
+    fx.defenseBonus = parseInt(statMatch[2]);
+  }
+
+  for (const kw of ["airborne", "charge", "lethal", "ranged", "burrowing", "ward", "stealth"]) {
+    if (new RegExp(`\\b(gains?|grants?|has)\\s+${kw}\\b`).test(t)) fx.keywords.push(kw);
+  }
+
+  return fx;
+}
+
 // ─── Grid positions & helpers ─────────────────────────────────────────────────
-//
-//   5 columns (0–4) × 4 rows (0–3)
-//   Player A's avatar starts at col 2, row 0  (bottom of their side)
-//   Player B's avatar starts at col 2, row 3  (bottom of their side)
-//
-//   Adjacency (official "Adjacent") = 4 cardinal directions
-//   Nearby (official "Nearby")      = 8 directions (diagonals included)
 
 interface Pos { col: number; row: number; }
 
@@ -69,113 +163,60 @@ const AVATAR_COL = 2;
 function inBounds(p: Pos): boolean {
   return p.col >= 0 && p.col < COLS && p.row >= 0 && p.row < ROWS;
 }
-
-function posEq(a: Pos, b: Pos): boolean {
-  return a.col === b.col && a.row === b.row;
-}
-
+function posEq(a: Pos, b: Pos): boolean { return a.col === b.col && a.row === b.row; }
 function posKey(p: Pos): string { return `${p.col},${p.row}`; }
 
-/** 4-cardinal neighbors — the official "Adjacent" definition */
 function cardinalNeighbors(p: Pos): Pos[] {
   return [
-    { col: p.col - 1, row: p.row },
-    { col: p.col + 1, row: p.row },
-    { col: p.col,     row: p.row - 1 },
-    { col: p.col,     row: p.row + 1 },
+    { col: p.col - 1, row: p.row }, { col: p.col + 1, row: p.row },
+    { col: p.col, row: p.row - 1 }, { col: p.col, row: p.row + 1 },
   ].filter(inBounds);
 }
 
-/** 8-directional neighbors — the official "Nearby" definition */
-function nearbyNeighbors(p: Pos): Pos[] {
-  const result: Pos[] = [];
-  for (let dr = -1; dr <= 1; dr++) {
-    for (let dc = -1; dc <= 1; dc++) {
-      if (dr === 0 && dc === 0) continue;
-      const np = { col: p.col + dc, row: p.row + dr };
-      if (inBounds(np)) result.push(np);
-    }
-  }
-  return result;
-}
-
-/** Cardinal (Manhattan) distance — minimum steps for a ground unit */
 function cardinalDist(a: Pos, b: Pos): number {
   return Math.abs(a.col - b.col) + Math.abs(a.row - b.row);
 }
-
-/** Chebyshev distance — minimum steps for an airborne unit (8-directional) */
 function chebyshevDist(a: Pos, b: Pos): number {
   return Math.max(Math.abs(a.col - b.col), Math.abs(a.row - b.row));
 }
-
-/** One cardinal step toward target (prefer column adjustment first) */
-function cardinalStep(from: Pos, to: Pos): Pos {
-  if (from.col !== to.col) {
-    return { col: from.col + Math.sign(to.col - from.col), row: from.row };
-  }
-  return { col: from.col, row: from.row + Math.sign(to.row - from.row) };
-}
-
-/** One diagonal/cardinal step toward target (for airborne units) */
-function diagonalStep(from: Pos, to: Pos): Pos {
-  return {
-    col: from.col + Math.sign(to.col - from.col),
-    row: from.row + Math.sign(to.row - from.row),
-  };
-}
-
 function stepDist(a: Pos, b: Pos, airborne: boolean): number {
   return airborne ? chebyshevDist(a, b) : cardinalDist(a, b);
 }
 
-// ─── Grid state ───────────────────────────────────────────────────────────────
-//
-//   The grid starts entirely void.  Sites are placed onto void (or rubble)
-//   squares; each site square is owned by A or B.  When a site is destroyed it
-//   becomes rubble (still passable; new sites can be placed there).
-
-type SquareOwner = "A" | "B" | null;
-
-interface GridSquare {
-  owner: SquareOwner; // null = void or rubble
-  site?: SimCard;
-  isRubble: boolean;
+function cardinalStep(from: Pos, to: Pos): Pos {
+  if (from.col !== to.col) return { col: from.col + Math.sign(to.col - from.col), row: from.row };
+  return { col: from.col, row: from.row + Math.sign(to.row - from.row) };
+}
+function diagonalStep(from: Pos, to: Pos): Pos {
+  return { col: from.col + Math.sign(to.col - from.col), row: from.row + Math.sign(to.row - from.row) };
 }
 
+// ─── Grid state ───────────────────────────────────────────────────────────────
+
+type SquareOwner = "A" | "B" | null;
+interface GridSquare { owner: SquareOwner; site?: SimCard; isRubble: boolean; }
 type Grid = GridSquare[][];
 
 function makeGrid(): Grid {
-  const grid: Grid = [];
-  for (let r = 0; r < ROWS; r++) {
-    grid.push(Array.from({ length: COLS }, () => ({
-      owner: null, site: undefined, isRubble: false,
-    })));
-  }
-  return grid;
+  return Array.from({ length: ROWS }, () =>
+    Array.from({ length: COLS }, () => ({ owner: null, site: undefined, isRubble: false }))
+  );
 }
-
 function getSquare(grid: Grid, p: Pos): GridSquare { return grid[p.row][p.col]; }
 
 function ownedSites(grid: Grid, owner: "A" | "B"): Pos[] {
   const result: Pos[] = [];
-  for (let r = 0; r < ROWS; r++) {
-    for (let c = 0; c < COLS; c++) {
+  for (let r = 0; r < ROWS; r++)
+    for (let c = 0; c < COLS; c++)
       if (grid[r][c].owner === owner) result.push({ col: c, row: r });
-    }
-  }
   return result;
 }
-
-function countSites(grid: Grid, owner: "A" | "B"): number {
-  return ownedSites(grid, owner).length;
-}
+function countSites(grid: Grid, owner: "A" | "B"): number { return ownedSites(grid, owner).length; }
 
 function siteThreshold(grid: Grid, owner: "A" | "B"): Threshold {
   const t: Threshold = { water: 0, earth: 0, fire: 0, air: 0 };
   for (const p of ownedSites(grid, owner)) {
-    const sq = getSquare(grid, p);
-    for (const el of sq.site?.elements ?? []) {
+    for (const el of getSquare(grid, p).site?.elements ?? []) {
       if      (el === "water") t.water++;
       else if (el === "earth") t.earth++;
       else if (el === "fire")  t.fire++;
@@ -185,16 +226,34 @@ function siteThreshold(grid: Grid, owner: "A" | "B"): Threshold {
   return t;
 }
 
-// ─── Board minions ────────────────────────────────────────────────────────────
+// ─── Board units ──────────────────────────────────────────────────────────────
 
 interface BoardMinion {
   card: SimCard;
   pos: Pos;
   owner: "A" | "B";
-  tapped: boolean;       // has acted (moved or attacked) this turn
-  sick: boolean;         // summoning sickness — can't attack unless Charge
-  tempDamage: number;    // damage received this turn; cleared at end of turn
-  stealthy: boolean;     // hidden until first attack
+  tapped: boolean;
+  sick: boolean;
+  tempDamage: number;
+  stealthy: boolean;
+}
+
+/** Artifact in play — either equipment (attached to a minion) or a structure (on a site). */
+interface BoardArtifact {
+  card:       SimCard;
+  owner:      "A" | "B";
+  attachedTo: BoardMinion | null; // null = structure
+  pos:        Pos | null;          // position if structure
+  effect:     ArtifactEffect;
+}
+
+/** Aura in play — enchants a specific minion. */
+interface BoardAura {
+  card:       SimCard;
+  owner:      "A" | "B";
+  attachedTo: BoardMinion;
+  effect:     AuraEffect;
+  temporary:  boolean; // true = spell-buff; removed at end of active player's turn
 }
 
 // ─── Player state ─────────────────────────────────────────────────────────────
@@ -206,21 +265,20 @@ interface PlayerState {
   avatarCard: SimCard;
   avatarLife: number;
   avatarPos: Pos;
-  deathsDoor: boolean;   // survived hitting 0 life once; next damage = death blow
-  atlasDeck: SimCard[];  // shuffled Sites
-  spellDeck: SimCard[];  // shuffled non-Sites
-  atlasHand: SimCard[];
-  spellHand: SimCard[];
-  mana: number;          // refreshes each turn = count of own sites
-  threshold: Threshold;
-  avatarTapUsed: boolean; // site placement once per turn
-  // ── Per-game stats (used for simulation analysis) ──────────────────────────
+  deathsDoor: boolean;
+  atlasDeck:  SimCard[];
+  spellDeck:  SimCard[];
+  atlasHand:  SimCard[];
+  spellHand:  SimCard[];
+  mana:       number;
+  threshold:  Threshold;
+  avatarTapUsed: boolean;
   sitesPlaced:     number;
   minionsDeployed: number;
-  siteAttacks:     number; // times a unit hit an undefended enemy site
+  siteAttacks:     number;
 }
 
-// ─── Deck helpers ─────────────────────────────────────────────────────────────
+// ─── Misc helpers ─────────────────────────────────────────────────────────────
 
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -230,18 +288,15 @@ function shuffle<T>(arr: T[]): T[] {
   }
   return a;
 }
-
 function remove<T>(arr: T[], item: T): T[] {
   const idx = arr.indexOf(item);
-  if (idx === -1) return arr;
-  return [...arr.slice(0, idx), ...arr.slice(idx + 1)];
+  return idx === -1 ? arr : [...arr.slice(0, idx), ...arr.slice(idx + 1)];
 }
 
 function initPlayer(spec: DeckSpec, id: "A" | "B"): PlayerState {
   const sites    = shuffle(spec.cards.filter(c => c.type === "Site"));
   const nonSites = shuffle(spec.cards.filter(c => c.type !== "Site" && c.type !== "Avatar"));
-
-  const player: PlayerState = {
+  const p: PlayerState = {
     id,
     avatarCard:     spec.avatar,
     avatarLife:     spec.avatar.life > 0 ? spec.avatar.life : 20,
@@ -258,104 +313,49 @@ function initPlayer(spec: DeckSpec, id: "A" | "B"): PlayerState {
     minionsDeployed: 0,
     siteAttacks:     0,
   };
-
-  // Starting hand: 3 atlas cards + 3 spellbook cards
-  for (let i = 0; i < 3 && player.atlasDeck.length > 0; i++) {
-    player.atlasHand.push(player.atlasDeck.pop()!);
-  }
-  for (let i = 0; i < 3 && player.spellDeck.length > 0; i++) {
-    player.spellHand.push(player.spellDeck.pop()!);
-  }
-
-  return player;
+  for (let i = 0; i < 3 && p.atlasDeck.length > 0; i++) p.atlasHand.push(p.atlasDeck.pop()!);
+  for (let i = 0; i < 3 && p.spellDeck.length > 0; i++) p.spellHand.push(p.spellDeck.pop()!);
+  return p;
 }
 
-/** Draw 1 card per turn — from atlas OR spellbook (pick based on hand balance) */
 function drawOne(p: PlayerState): void {
-  // Prefer atlas if atlas hand is smaller; otherwise spellbook; fallback to whichever exists
-  const wantAtlas =
-    (p.atlasHand.length <= p.spellHand.length && p.atlasDeck.length > 0) ||
-    p.spellDeck.length === 0;
-
-  if (wantAtlas && p.atlasDeck.length > 0) {
-    p.atlasHand.push(p.atlasDeck.pop()!);
-  } else if (p.spellDeck.length > 0) {
-    p.spellHand.push(p.spellDeck.pop()!);
-  }
+  const wantAtlas = (p.atlasHand.length <= p.spellHand.length && p.atlasDeck.length > 0) || p.spellDeck.length === 0;
+  if (wantAtlas && p.atlasDeck.length > 0) p.atlasHand.push(p.atlasDeck.pop()!);
+  else if (p.spellDeck.length > 0)          p.spellHand.push(p.spellDeck.pop()!);
 }
 
 function canPlay(card: SimCard, threshold: Threshold, mana: number): boolean {
-  // Sites cost 0 mana (placed via Avatar Tap ability, not from mana pool)
   if (card.type === "Site") return true;
   const cost = card.waterT + card.earthT + card.fireT + card.airT;
-  if (mana < cost) return false;
-  return threshold.water >= card.waterT &&
-         threshold.earth >= card.earthT &&
-         threshold.fire  >= card.fireT  &&
-         threshold.air   >= card.airT;
+  return mana >= cost &&
+    threshold.water >= card.waterT && threshold.earth >= card.earthT &&
+    threshold.fire  >= card.fireT  && threshold.air   >= card.airT;
 }
+function minionValue(c: SimCard): number { return (c.attack ?? 0) + (c.defense ?? 0); }
 
 // ─── Site placement ───────────────────────────────────────────────────────────
-//
-//   Rules:
-//   • The first site must be placed on the avatar's own square.
-//   • Subsequent sites must be on a void or rubble square that is
-//     adjacent (4-cardinal) to at least one square the player already owns.
-//   • Sites are free (Avatar Tap ability, once per turn).
 
-function findSitePlacementSquares(
-  grid: Grid,
-  minions: BoardMinion[],
-  player: PlayerState,
-): Pos[] {
+function findSitePlacementSquares(grid: Grid, minions: BoardMinion[], player: PlayerState): Pos[] {
   const owned = ownedSites(grid, player.id);
-
-  // No sites yet → first site on avatar's square
   if (owned.length === 0) {
     const sq = getSquare(grid, player.avatarPos);
-    if (!sq.owner) return [player.avatarPos]; // only if not already owned
-    return [];
+    return !sq.owner ? [player.avatarPos] : [];
   }
-
-  // Adjacent void/rubble squares not occupied by a minion
   const minionKeys = new Set(minions.map(m => posKey(m.pos)));
   const candidates = new Set<string>();
-  for (const site of owned) {
+  for (const site of owned)
     for (const nb of cardinalNeighbors(site)) {
       const sq = getSquare(grid, nb);
-      if (!sq.owner && !minionKeys.has(posKey(nb))) {
-        candidates.add(posKey(nb));
-      }
+      if (!sq.owner && !minionKeys.has(posKey(nb))) candidates.add(posKey(nb));
     }
-  }
-
-  // Convert back to Pos
-  return [...candidates].map(k => {
-    const [c, r] = k.split(",").map(Number);
-    return { col: c, row: r };
-  });
+  return [...candidates].map(k => { const [c, r] = k.split(",").map(Number); return { col: c, row: r }; });
 }
 
-/** AI chooses the best site to place — prefers expansion toward enemy */
-function chooseSitePosition(
-  candidates: Pos[],
-  enemyAvatarPos: Pos,
-  ownId: "A" | "B",
-): Pos {
-  // Score: closer to the centre row between players, closer to enemy is better
-  return [...candidates].sort((a, b) => {
-    const distA = cardinalDist(a, enemyAvatarPos);
-    const distB = cardinalDist(b, enemyAvatarPos);
-    return distA - distB; // smaller distance = better
-  })[0];
+function chooseSitePosition(candidates: Pos[], enemyAvatarPos: Pos): Pos {
+  return [...candidates].sort((a, b) => cardinalDist(a, enemyAvatarPos) - cardinalDist(b, enemyAvatarPos))[0];
 }
 
-/** Pick the best site card from hand to play (covers most needed thresholds) */
-function chooseSiteCard(
-  sites: SimCard[],
-  threshold: Threshold,
-  spellHand: SimCard[],
-): SimCard {
+function chooseSiteCard(sites: SimCard[], threshold: Threshold, spellHand: SimCard[]): SimCard {
   const needed: Record<string, number> = { water: 0, earth: 0, fire: 0, air: 0 };
   for (const c of spellHand) {
     if (c.type === "Site") continue;
@@ -364,111 +364,37 @@ function chooseSiteCard(
     needed.fire  = Math.max(needed.fire,  Math.max(0, c.fireT  - threshold.fire));
     needed.air   = Math.max(needed.air,   Math.max(0, c.airT   - threshold.air));
   }
-  const score = (s: SimCard) =>
-    s.elements.reduce((n, el) => n + (needed[el] ?? 0), 0) + s.elements.length * 0.01;
+  const score = (s: SimCard) => s.elements.reduce((n, el) => n + (needed[el] ?? 0), 0) + s.elements.length * 0.01;
   return [...sites].sort((a, b) => score(b) - score(a))[0];
 }
 
-// ─── Minion placement ─────────────────────────────────────────────────────────
-//
-//   Minions must be placed on a friendly site square that has no minion on it.
-
-function freeSiteSquares(
-  grid: Grid,
-  minions: BoardMinion[],
-  owner: "A" | "B",
-): Pos[] {
+function freeSiteSquares(grid: Grid, minions: BoardMinion[], owner: "A" | "B"): Pos[] {
   const minionKeys = new Set(minions.map(m => posKey(m.pos)));
   return ownedSites(grid, owner).filter(p => !minionKeys.has(posKey(p)));
 }
 
-/** AI picks the most forward friendly site (closest to enemy) */
-function chooseMinionPosition(
-  freeSites: Pos[],
-  enemyAvatarPos: Pos,
-): Pos {
-  return [...freeSites].sort(
-    (a, b) => cardinalDist(a, enemyAvatarPos) - cardinalDist(b, enemyAvatarPos)
-  )[0];
-}
-
-// ─── Combat helpers ───────────────────────────────────────────────────────────
-
-function minionValue(c: SimCard): number { return (c.attack ?? 0) + (c.defense ?? 0); }
-
-function canAttack(bm: BoardMinion): boolean {
-  return !bm.tapped && !(bm.sick && !hasKw(bm.card, "charge"));
-}
-
-/** Effective movement distance for a unit (1 step; airborne = diagonal ok too) */
-function moveRange(_bm: BoardMinion): number { return 1; }
-
-/** Is this unit airborne? Affects movement style and target selection. */
-function isAirborne(bm: BoardMinion): boolean {
-  return hasKw(bm.card, "airborne");
-}
-
-/**
- * Can `attacker` see `target` minion?
- * Stealth = undetectable until revealed; Burrowing = only attackable by specific types.
- */
-function canTarget(attacker: BoardMinion, target: BoardMinion): boolean {
-  if (target.stealthy) return false;
-  if (hasKw(target.card, "burrowing")) {
-    return hasKw(attacker.card, "burrowing") ||
-           hasKw(attacker.card, "airborne")  ||
-           hasKw(attacker.card, "ranged");
-  }
-  return true;
-}
-
-/** Simultaneous fight: both deal damage; die if damage ≥ defense. */
-interface FightResult {
-  attackerDies: boolean;
-  defenderDies: boolean;
-}
-
-function resolveFight(attacker: BoardMinion, defender: BoardMinion): FightResult {
-  const defToAtk = defender.card.attack;
-  const atkToDef = attacker.card.attack;
-  return {
-    attackerDies: defToAtk >= attacker.card.defense || hasKw(defender.card, "lethal"),
-    defenderDies: atkToDef >= defender.card.defense || hasKw(attacker.card, "lethal"),
-  };
+function chooseMinionPosition(freeSites: Pos[], enemyAvatarPos: Pos): Pos {
+  return [...freeSites].sort((a, b) => cardinalDist(a, enemyAvatarPos) - cardinalDist(b, enemyAvatarPos))[0];
 }
 
 // ─── Board snapshot types ─────────────────────────────────────────────────────
 
 export interface MinionState {
-  name: string;
-  owner: "A" | "B";
-  attack: number;
-  defense: number;
-  tapped: boolean;
-  sick: boolean;
+  name: string; owner: "A" | "B";
+  attack: number; defense: number;
+  tapped: boolean; sick: boolean;
   keywords: string[];
 }
-
 export interface SquareState {
-  siteOwner: "A" | "B" | null;
-  siteName: string | null;
-  isRubble: boolean;
-  minion: MinionState | null;
-  isAvatarA: boolean;
-  isAvatarB: boolean;
+  siteOwner: "A" | "B" | null; siteName: string | null;
+  isRubble: boolean; minion: MinionState | null;
+  isAvatarA: boolean; isAvatarB: boolean;
 }
-
-/** One snapshot of the 5×4 grid captured at the end of each turn. */
 export interface BoardSnapshot {
-  turn: number;
-  activePlayer: "A" | "B";
-  lifeA: number;
-  lifeB: number;
-  manaA: number;
-  manaB: number;
-  sitesA: number;
-  sitesB: number;
-  /** squares[row][col], rows 0-3, cols 0-4 */
+  turn: number; activePlayer: "A" | "B";
+  lifeA: number; lifeB: number;
+  manaA: number; manaB: number;
+  sitesA: number; sitesB: number;
   squares: SquareState[][];
 }
 
@@ -478,51 +404,131 @@ export interface GameResult {
   winner: "A" | "B" | "draw";
   turns: number;
   log: string[];
-  /** Per-turn board snapshots (populated only when keepLog = true) */
   snapshots: BoardSnapshot[];
-  finalLifeA: number;
-  finalLifeB: number;
-  // Per-game stats for aggregation
-  sitesA:     number;
-  sitesB:     number;
-  minionsA:   number;
-  minionsB:   number;
-  siteAtksA:  number;
-  siteAtksB:  number;
+  finalLifeA: number; finalLifeB: number;
+  sitesA: number;  sitesB: number;
+  minionsA: number; minionsB: number;
+  siteAtksA: number; siteAtksB: number;
 }
-
-// ─── Main game simulation ─────────────────────────────────────────────────────
 
 const MAX_TURNS = 50;
 
-export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false): GameResult {
-  const grid    = makeGrid();
-  const pA      = initPlayer(specA, "A");
-  const pB      = initPlayer(specB, "B");
-  const minions: BoardMinion[] = [];
+// ─── Main game simulation ─────────────────────────────────────────────────────
 
-  const log: string[] = [];
+export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false): GameResult {
+  const grid     = makeGrid();
+  const pA       = initPlayer(specA, "A");
+  const pB       = initPlayer(specB, "B");
+  const minions: BoardMinion[]  = [];
+  const artifacts: BoardArtifact[] = [];
+  const auras: BoardAura[]     = [];
+
+  const log: string[]          = [];
   const snapshots: BoardSnapshot[] = [];
   const emit = (msg: string) => { if (keepLog) log.push(msg); };
 
-  /** Capture the full board state into a snapshot */
+  // ── Effective-stat helpers (close over auras/artifacts) ──────────────────
+
+  function effAtk(bm: BoardMinion): number {
+    let v = bm.card.attack;
+    for (const a of auras)     if (a.attachedTo === bm) v += a.effect.attackBonus;
+    for (const a of artifacts) if (a.attachedTo === bm) v += a.effect.attackBonus;
+    return v;
+  }
+  function effDef(bm: BoardMinion): number {
+    let v = bm.card.defense;
+    for (const a of auras)     if (a.attachedTo === bm) v += a.effect.defenseBonus;
+    for (const a of artifacts) if (a.attachedTo === bm) v += a.effect.defenseBonus;
+    return v;
+  }
+  function effKws(bm: BoardMinion): string[] {
+    const kws = [...bm.card.keywords];
+    for (const a of auras)     if (a.attachedTo === bm) for (const k of a.effect.keywords) if (!kws.includes(k)) kws.push(k);
+    for (const a of artifacts) if (a.attachedTo === bm) for (const k of a.effect.keywords) if (!kws.includes(k)) kws.push(k);
+    return kws;
+  }
+  function bHasKw(bm: BoardMinion, kw: string): boolean { return effKws(bm).includes(kw); }
+  function bIsAirborne(bm: BoardMinion): boolean { return bHasKw(bm, "airborne"); }
+  function bCanAttack(bm: BoardMinion): boolean {
+    return !bm.tapped && !(bm.sick && !bHasKw(bm, "charge"));
+  }
+
+  // ── Board queries ─────────────────────────────────────────────────────────
+
+  function friendlyMinions(id: "A" | "B"): BoardMinion[] { return minions.filter(m => m.owner === id); }
+  function enemyMinions(id: "A" | "B"): BoardMinion[]    { return minions.filter(m => m.owner !== id); }
+  function player(id: "A" | "B"): PlayerState { return id === "A" ? pA : pB; }
+  function opponent(id: "A" | "B"): PlayerState { return id === "A" ? pB : pA; }
+
+  function removeMinion(bm: BoardMinion): void {
+    const idx = minions.indexOf(bm);
+    if (idx !== -1) minions.splice(idx, 1);
+    // Clean up attached auras/artifacts
+    for (let i = auras.length - 1; i >= 0; i--)
+      if (auras[i].attachedTo === bm) auras.splice(i, 1);
+    for (let i = artifacts.length - 1; i >= 0; i--)
+      if (artifacts[i].attachedTo === bm) artifacts.splice(i, 1);
+  }
+
+  /** Can attacker see / legally target a defender? */
+  function canTarget(atk: BoardMinion, def: BoardMinion): boolean {
+    if (def.stealthy) return false;
+    if (bHasKw(def, "burrowing")) {
+      return bHasKw(atk, "burrowing") || bHasKw(atk, "airborne") || bHasKw(atk, "ranged");
+    }
+    return true;
+  }
+
+  // ── Simultaneous fight ────────────────────────────────────────────────────
+
+  interface FightResult { attackerDies: boolean; defenderDies: boolean; }
+
+  function resolveFight(atk: BoardMinion, def: BoardMinion): FightResult {
+    return {
+      attackerDies: def.card.attack >= effDef(atk) || bHasKw(def, "lethal"),
+      defenderDies: effAtk(atk)     >= effDef(def) || bHasKw(atk, "lethal"),
+    };
+  }
+
+  // ── Ranged one-way attack ─────────────────────────────────────────────────
+
+  function resolveRangedAttack(atk: BoardMinion, def: BoardMinion, casterName: string): void {
+    if (atk.stealthy) atk.stealthy = false;
+    atk.tapped = true;
+    // One-way: attacker deals damage; defender only fights back if also ranged
+    const defenderDies = effAtk(atk) >= effDef(def) || bHasKw(atk, "lethal");
+    const attackerDies = bHasKw(def, "ranged") && (def.card.attack >= effDef(atk) || bHasKw(def, "lethal"));
+    emit(`T${turn} [${casterName}] ${atk.card.name} fires at ${def.card.name} (ranged)`);
+    if (defenderDies) { removeMinion(def); emit(`  → ${def.card.name} destroyed`); }
+    if (attackerDies) { removeMinion(atk); emit(`  → ${atk.card.name} shot down in return`); }
+  }
+
+  // ── Avatar damage ─────────────────────────────────────────────────────────
+
+  function damageAvatar(target: PlayerState, amount: number, source: string): void {
+    if (amount <= 0) return;
+    target.avatarLife -= amount;
+    emit(`  → ${source} deals ${amount} to ${target.avatarCard.name} (${Math.max(0, target.avatarLife)} life)`);
+    if (target.avatarLife <= 0 && !target.deathsDoor) {
+      target.deathsDoor = true;
+      target.avatarLife = 1;
+      emit(`  → ${target.avatarCard.name} is at Death's Door!`);
+    }
+  }
+
+  // ── Board snapshot ────────────────────────────────────────────────────────
+
   function captureSnapshot(currentTurn: number, active: "A" | "B"): BoardSnapshot {
     const squares: SquareState[][] = Array.from({ length: ROWS }, (_, r) =>
       Array.from({ length: COLS }, (_, c) => {
-        const sq  = getSquare(grid, { col: c, row: r });
-        const bm  = minions.find(m => m.pos.col === c && m.pos.row === r);
+        const sq = getSquare(grid, { col: c, row: r });
+        const bm = minions.find(m => m.pos.col === c && m.pos.row === r);
         return {
-          siteOwner: sq.owner,
-          siteName:  sq.site?.name ?? null,
-          isRubble:  sq.isRubble,
+          siteOwner: sq.owner, siteName: sq.site?.name ?? null, isRubble: sq.isRubble,
           minion: bm ? {
-            name:     bm.card.name,
-            owner:    bm.owner,
-            attack:   bm.card.attack,
-            defense:  bm.card.defense,
-            tapped:   bm.tapped,
-            sick:     bm.sick,
-            keywords: bm.card.keywords,
+            name: bm.card.name, owner: bm.owner,
+            attack: effAtk(bm), defense: effDef(bm),
+            tapped: bm.tapped, sick: bm.sick, keywords: effKws(bm),
           } : null,
           isAvatarA: pA.avatarPos.col === c && pA.avatarPos.row === r,
           isAvatarB: pB.avatarPos.col === c && pB.avatarPos.row === r,
@@ -530,81 +536,132 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       })
     );
     return {
-      turn: currentTurn,
-      activePlayer: active,
-      lifeA:  Math.max(0, pA.avatarLife),
-      lifeB:  Math.max(0, pB.avatarLife),
-      manaA:  pA.mana,
-      manaB:  pB.mana,
-      sitesA: countSites(grid, "A"),
-      sitesB: countSites(grid, "B"),
+      turn: currentTurn, activePlayer: active,
+      lifeA: Math.max(0, pA.avatarLife), lifeB: Math.max(0, pB.avatarLife),
+      manaA: pA.mana, manaB: pB.mana,
+      sitesA: countSites(grid, "A"), sitesB: countSites(grid, "B"),
       squares,
     };
   }
 
-  function allMinions(): BoardMinion[] { return minions; }
-  function friendlyMinions(id: "A" | "B"): BoardMinion[]  { return minions.filter(m => m.owner === id); }
-  function enemyMinions(id: "A" | "B"): BoardMinion[]     { return minions.filter(m => m.owner !== id); }
-  function removeMinion(bm: BoardMinion): void {
-    const idx = minions.indexOf(bm);
-    if (idx !== -1) minions.splice(idx, 1);
-  }
-
-  function player(id: "A" | "B"): PlayerState { return id === "A" ? pA : pB; }
-  function opponent(id: "A" | "B"): PlayerState { return id === "A" ? pB : pA; }
-
-  // ── Avatar damage ──────────────────────────────────────────────────────────
-  //
-  //   Applies damage to an avatar.  Death's Door: if life reaches ≤ 0 for the
-  //   first time, the avatar stays at 1; only a second instance of damage kills.
-
-  function damageAvatar(target: PlayerState, amount: number, source: string): void {
-    if (amount <= 0) return;
-    target.avatarLife -= amount;
-    emit(`  → ${source} deals ${amount} to ${target.avatarCard.name} (${Math.max(0, target.avatarLife)} life)`);
-
-    if (target.avatarLife <= 0) {
-      if (!target.deathsDoor) {
-        target.deathsDoor = true;
-        target.avatarLife = 1; // survives on death's door
-        emit(`  → ${target.avatarCard.name} is at Death's Door!`);
-      }
-      // If already at death's door: life stays ≤ 0 → triggers win condition
-    }
-  }
-
-  // ── Site placement step ────────────────────────────────────────────────────
+  // ── Site placement ────────────────────────────────────────────────────────
 
   function playSite(active: PlayerState): void {
-    if (active.avatarTapUsed) return;
-    if (active.atlasHand.length === 0) return;
-
-    const opp = opponent(active.id);
-    const squares = findSitePlacementSquares(grid, allMinions(), active);
+    if (active.avatarTapUsed || active.atlasHand.length === 0) return;
+    const squares = findSitePlacementSquares(grid, minions, active);
     if (squares.length === 0) return;
 
     const card = chooseSiteCard(active.atlasHand, active.threshold, active.spellHand);
-    const pos  = chooseSitePosition(squares, opp.avatarPos, active.id);
+    const pos  = chooseSitePosition(squares, opponent(active.id).avatarPos);
 
-    // Place the site
     active.atlasHand = remove(active.atlasHand, card);
     const sq = getSquare(grid, pos);
-    sq.owner   = active.id;
-    sq.site    = card;
-    sq.isRubble = false;
+    sq.owner = active.id; sq.site = card; sq.isRubble = false;
     active.avatarTapUsed = true;
     active.sitesPlaced++;
-
-    // Refresh mana and threshold
     active.mana      = countSites(grid, active.id);
     active.threshold = siteThreshold(grid, active.id);
+    // Apply structure artifacts' mana bonus already on board
+    for (const art of artifacts)
+      if (art.owner === active.id && art.effect.kind === "structure") active.mana += art.effect.manaBonus;
 
-    emit(`T${turn} [${active.id}] places site ${card.name} at (${pos.col},${pos.row}) ` +
-         `→ ${active.mana} mana · W${active.threshold.water}E${active.threshold.earth}` +
-         `F${active.threshold.fire}A${active.threshold.air}`);
+    emit(`T${turn} [${active.id}] places site ${card.name} at (${pos.col},${pos.row}) → ${active.mana} mana · W${active.threshold.water}E${active.threshold.earth}F${active.threshold.fire}A${active.threshold.air}`);
   }
 
-  // ── Card play step ────────────────────────────────────────────────────────
+  // ── Spell resolution ──────────────────────────────────────────────────────
+
+  function resolveSpellEffect(active: PlayerState, opp: PlayerState, effect: SpellEffect, cost: number, cardName: string): void {
+    switch (effect.kind) {
+
+      case "destroy": {
+        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
+        if (targets.length > 0) {
+          // Destroy the highest-value target
+          const victim = [...targets].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+          removeMinion(victim);
+          emit(`T${turn} [${active.id}] casts ${cardName}: destroys ${victim.card.name}`);
+        } else {
+          damageAvatar(opp, Math.max(1, cost), cardName);
+        }
+        break;
+      }
+
+      case "damage": {
+        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
+        if (targets.length > 0) {
+          // Prefer killable; otherwise pick weakest
+          const killable = targets.filter(t => effect.amount >= effDef(t));
+          const victim = (killable.length > 0 ? killable : targets)
+            .sort((a, b) => minionValue(a.card) - minionValue(b.card))[0];
+          emit(`T${turn} [${active.id}] casts ${cardName}: ${effect.amount} damage to ${victim.card.name}`);
+          if (effect.amount >= effDef(victim)) {
+            removeMinion(victim);
+            emit(`  → ${victim.card.name} destroyed`);
+          }
+        } else {
+          damageAvatar(opp, effect.amount, cardName);
+        }
+        break;
+      }
+
+      case "damage_all": {
+        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
+        emit(`T${turn} [${active.id}] casts ${cardName}: ${effect.amount} damage to all enemies`);
+        for (const t of [...targets]) {  // copy — list mutates as minions die
+          if (effect.amount >= effDef(t)) { removeMinion(t); emit(`  → ${t.card.name} destroyed`); }
+        }
+        if (targets.length === 0) damageAvatar(opp, effect.amount, cardName);
+        break;
+      }
+
+      case "draw": {
+        for (let i = 0; i < effect.amount; i++) drawOne(active);
+        emit(`T${turn} [${active.id}] casts ${cardName}: draws ${effect.amount}`);
+        break;
+      }
+
+      case "buff": {
+        const friends = friendlyMinions(active.id);
+        if (friends.length > 0) {
+          const target = [...friends].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+          // Push as a temporary aura (removed at end of this turn)
+          auras.push({
+            card: { ...target.card, name: `${cardName} buff` },
+            owner: active.id, attachedTo: target,
+            effect: { attackBonus: effect.attack, defenseBonus: effect.defense, keywords: [] },
+            temporary: true,
+          });
+          emit(`T${turn} [${active.id}] casts ${cardName}: buffs ${target.card.name} +${effect.attack}/+${effect.defense}`);
+        }
+        break;
+      }
+
+      case "bounce": {
+        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
+        if (targets.length > 0) {
+          const victim = [...targets].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+          removeMinion(victim);
+          opp.spellHand.push(victim.card);
+          emit(`T${turn} [${active.id}] casts ${cardName}: bounces ${victim.card.name} to hand`);
+        }
+        break;
+      }
+
+      default: { // generic
+        const ping = Math.max(1, cost);
+        const targets = enemyMinions(active.id).filter(m => !m.stealthy && !bHasKw(m, "ward"));
+        if (targets.length > 0) {
+          const victim = [...targets].sort((a, b) => minionValue(a.card) - minionValue(b.card))[0];
+          removeMinion(victim);
+          emit(`T${turn} [${active.id}] casts ${cardName}: removes ${victim.card.name}`);
+        } else {
+          damageAvatar(opp, ping, cardName);
+        }
+      }
+    }
+  }
+
+  // ── Card play ─────────────────────────────────────────────────────────────
 
   function playCards(active: PlayerState): void {
     const opp = opponent(active.id);
@@ -615,10 +672,9 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       const allPlayable = active.spellHand.filter(
         c => c.type !== "Site" && c.type !== "Avatar" && canPlay(c, active.threshold, active.mana)
       );
-
       if (allPlayable.length === 0) break;
 
-      // Prefer highest-value minions, then spells
+      // Priority: Minions first (highest value), then other card types
       const card = [...allPlayable].sort((a, b) => {
         if (a.type === "Minion" && b.type !== "Minion") return -1;
         if (a.type !== "Minion" && b.type === "Minion") return 1;
@@ -630,21 +686,12 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       active.spellHand = remove(active.spellHand, card);
 
       if (card.type === "Minion") {
-        const free = freeSiteSquares(grid, allMinions(), active.id);
-        if (free.length === 0) {
-          // No free site — put card back, stop trying minions
-          active.spellHand.push(card);
-          active.mana += cost;
-          break;
-        }
+        const free = freeSiteSquares(grid, minions, active.id);
+        if (free.length === 0) { active.spellHand.push(card); active.mana += cost; break; }
         const pos = chooseMinionPosition(free, opp.avatarPos);
         const bm: BoardMinion = {
-          card,
-          pos,
-          owner: active.id,
-          tapped: false,
-          sick: !hasKw(card, "charge"),
-          tempDamage: 0,
+          card, pos, owner: active.id,
+          tapped: false, sick: !hasKw(card, "charge"), tempDamage: 0,
           stealthy: hasKw(card, "stealth"),
         };
         minions.push(bm);
@@ -652,180 +699,178 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         const kwStr = card.keywords.length ? ` [${card.keywords.join(",")}]` : "";
         emit(`T${turn} [${active.id}] plays ${card.name} (${card.attack}/${card.defense})${kwStr} → (${pos.col},${pos.row})`);
         keepTrying = true;
-      } else {
-        // Spell/Artifact/Aura: damage or remove enemy
-        const validTargets = enemyMinions(active.id).filter(
-          m => !m.stealthy && !hasKw(m.card, "ward")
-        );
-        if (validTargets.length > 0) {
-          // Kill weakest enemy minion
-          const victim = [...validTargets].sort(
-            (a, b) => minionValue(a.card) - minionValue(b.card)
-          )[0];
-          removeMinion(victim);
-          emit(`T${turn} [${active.id}] casts ${card.name}: destroys ${victim.card.name}`);
+
+      } else if (card.type === "Artifact") {
+        const fx = card.artifactEffect ?? parseArtifactEffect(card.rulesText);
+        if (fx.kind === "equipment") {
+          const friends = friendlyMinions(active.id);
+          if (friends.length > 0) {
+            const target = [...friends].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+            artifacts.push({ card, owner: active.id, attachedTo: target, pos: null, effect: fx });
+            emit(`T${turn} [${active.id}] equips ${card.name} to ${target.card.name} (+${fx.attackBonus}/+${fx.defenseBonus})`);
+          }
         } else {
-          // No minion targets → spell hits avatar via site attack flavour
-          const ping = Math.max(1, cost);
-          damageAvatar(opp, ping, card.name);
-          emit(`T${turn} [${active.id}] casts ${card.name}: deals ${ping} to avatar`);
+          // Structure — place on any friendly site
+          const sites = ownedSites(grid, active.id);
+          const pos = sites.length > 0 ? sites[0] : null;
+          artifacts.push({ card, owner: active.id, attachedTo: null, pos, effect: fx });
+          if (fx.manaBonus > 0) {
+            active.mana += fx.manaBonus;
+            emit(`T${turn} [${active.id}] builds structure ${card.name} (+${fx.manaBonus} mana)`);
+          } else {
+            emit(`T${turn} [${active.id}] builds structure ${card.name}`);
+          }
         }
+        keepTrying = true;
+
+      } else if (card.type === "Aura") {
+        const fx = card.auraEffect ?? parseAuraEffect(card.rulesText);
+        const friends = friendlyMinions(active.id);
+        if (friends.length > 0) {
+          // Enchant the minion that benefits most — prefer one gaining a new keyword
+          const target = [...friends].sort((a, b) => {
+            const aGains = fx.keywords.filter(k => !bHasKw(a, k)).length;
+            const bGains = fx.keywords.filter(k => !bHasKw(b, k)).length;
+            return bGains - aGains || minionValue(b.card) - minionValue(a.card);
+          })[0];
+          auras.push({ card, owner: active.id, attachedTo: target, effect: fx, temporary: false });
+          const kwStr = fx.keywords.length ? ` [grants ${fx.keywords.join(",")}]` : "";
+          emit(`T${turn} [${active.id}] enchants ${target.card.name} with ${card.name}${kwStr}`);
+        }
+        keepTrying = true;
+
+      } else {
+        // Magic spell
+        const fx = card.spellEffect ?? parseSpellEffect(card.rulesText);
+        resolveSpellEffect(active, opp, fx, cost, card.name);
         keepTrying = true;
       }
     }
   }
 
-  // ── Combat step ──────────────────────────────────────────────────────────
-  //
-  //   Each ready (untapped, not sick unless Charge) minion:
-  //   1. Moves 1 step toward its best target.
-  //   2. Resolves combat at the destination:
-  //        a. Enemy minion on same square → fight simultaneously.
-  //        b. Enemy site on square with no minion → attack site → deal attack
-  //           to enemy avatar; check for a Defend response first.
-  //        c. Nothing useful → stay (will try again next turn).
+  // ── Combat step ───────────────────────────────────────────────────────────
 
   function combatStep(active: PlayerState): void {
     const opp = opponent(active.id);
 
-    // Actors sorted by attack descending (stronger units act first)
     const actors = friendlyMinions(active.id)
-      .filter(canAttack)
-      .sort((a, b) => b.card.attack - a.card.attack);
+      .filter(bCanAttack)
+      .sort((a, b) => effAtk(b) - effAtk(a));
 
     for (const bm of actors) {
-      if (!minions.includes(bm)) continue; // may have been killed earlier this turn
+      if (!minions.includes(bm)) continue;
 
-      const airborne = isAirborne(bm);
+      const airborne = bIsAirborne(bm);
+      const isRanged = bHasKw(bm, "ranged");
 
-      // --- Choose target ---
-      // Priority: co-located enemy (intercept), then enemy minion, then enemy site,
-      // then enemy avatar square (to attack adjacent site)
-      const colocated = enemyMinions(active.id).filter(
-        e => posEq(e.pos, bm.pos) && canTarget(bm, e)
-      );
+      // ── Ranged attack path ──────────────────────────────────────────────
+      // Ranged units do NOT move to the target's square.
+      // They attack any enemy within 2 cardinal steps from their current position.
+      // The defender cannot retaliate (unless they also have Ranged).
+      if (isRanged) {
+        const rangedTargets = enemyMinions(active.id).filter(
+          e => canTarget(bm, e) && cardinalDist(bm.pos, e.pos) <= 2
+        );
+        if (rangedTargets.length > 0) {
+          // Prefer killable, then nearest, then weakest
+          const target = [...rangedTargets].sort((a, b) => {
+            const aKill = effAtk(bm) >= effDef(a) ? 0 : 1;
+            const bKill = effAtk(bm) >= effDef(b) ? 0 : 1;
+            return aKill - bKill || cardinalDist(bm.pos, a.pos) - cardinalDist(bm.pos, b.pos);
+          })[0];
+          resolveRangedAttack(bm, target, active.id);
+          continue;
+        }
+        // No target in range — fall through to move 1 step closer
+        const closestEnemy = [...enemyMinions(active.id)].sort(
+          (a, b) => cardinalDist(bm.pos, a.pos) - cardinalDist(bm.pos, b.pos)
+        )[0];
+        const targetPos = closestEnemy?.pos ?? opp.avatarPos;
+        const step = cardinalStep(bm.pos, targetPos);
+        if (inBounds(step) && !posEq(step, bm.pos)) {
+          emit(`T${turn} [${active.id}] ${bm.card.name} advances (${bm.pos.col},${bm.pos.row})→(${step.col},${step.row})`);
+          bm.pos = step;
+        }
+        continue;
+      }
+
+      // ── Ground / airborne attack path ───────────────────────────────────
+      const colocated = enemyMinions(active.id).filter(e => posEq(e.pos, bm.pos) && canTarget(bm, e));
 
       let targetPos: Pos;
-
       if (colocated.length > 0) {
-        // Already in combat — fight in place
         targetPos = bm.pos;
       } else {
-        // Look for nearest reachable enemy
         const visibleEnemies = enemyMinions(active.id).filter(e => canTarget(bm, e));
-
-        // Find nearest enemy minion or enemy site
-        const enemySitePositions = ownedSites(grid, opp.id);
-
+        const enemySites     = ownedSites(grid, opp.id);
         const candidates: { pos: Pos; dist: number }[] = [
-          ...visibleEnemies.map(e => ({
-            pos: e.pos,
-            dist: stepDist(bm.pos, e.pos, airborne),
-          })),
-          ...enemySitePositions.map(p => ({
-            pos: p,
-            dist: stepDist(bm.pos, p, airborne),
-          })),
+          ...visibleEnemies.map(e => ({ pos: e.pos, dist: stepDist(bm.pos, e.pos, airborne) })),
+          ...enemySites.map(p => ({ pos: p, dist: stepDist(bm.pos, p, airborne) })),
         ];
-
-        if (candidates.length === 0) continue; // nowhere to go
-
+        if (candidates.length === 0) continue;
         candidates.sort((a, b) => a.dist - b.dist);
         targetPos = candidates[0].pos;
       }
 
-      // --- Move one step toward targetPos ---
+      // Move 1 step toward target
       if (!posEq(bm.pos, targetPos)) {
-        const newPos = airborne
-          ? diagonalStep(bm.pos, targetPos)
-          : cardinalStep(bm.pos, targetPos);
-
+        const newPos = airborne ? diagonalStep(bm.pos, targetPos) : cardinalStep(bm.pos, targetPos);
         if (inBounds(newPos) && !posEq(newPos, bm.pos)) {
           emit(`T${turn} [${active.id}] ${bm.card.name} moves (${bm.pos.col},${bm.pos.row})→(${newPos.col},${newPos.row})`);
           bm.pos = newPos;
         }
       }
 
-      // --- Resolve at new position ---
-      const atSameSquare = enemyMinions(active.id).filter(
-        e => posEq(e.pos, bm.pos) && canTarget(bm, e)
-      );
+      // Resolve at new position
+      const atSameSquare = enemyMinions(active.id).filter(e => posEq(e.pos, bm.pos) && canTarget(bm, e));
 
       if (atSameSquare.length > 0) {
-        // Fight the strongest enemy here (it fights back)
-        const defender = [...atSameSquare].sort(
-          (a, b) => b.card.attack - a.card.attack
-        )[0];
-
+        const defender = [...atSameSquare].sort((a, b) => effAtk(b) - effAtk(a))[0];
         if (bm.stealthy) bm.stealthy = false;
         if (defender.stealthy) defender.stealthy = false;
-
         const { attackerDies, defenderDies } = resolveFight(bm, defender);
         bm.tapped = true;
-
         emit(`T${turn} [${active.id}] ${bm.card.name} fights ${defender.card.name} at (${bm.pos.col},${bm.pos.row})`);
-        if (defenderDies) {
-          removeMinion(defender);
-          emit(`  → ${defender.card.name} destroyed`);
-        }
-        if (attackerDies) {
-          removeMinion(bm);
-          emit(`  → ${bm.card.name} destroyed in combat`);
-        }
+        if (defenderDies) { removeMinion(defender); emit(`  → ${defender.card.name} destroyed`); }
+        if (attackerDies) { removeMinion(bm);       emit(`  → ${bm.card.name} destroyed in combat`); }
 
       } else {
-        // Check if current square is an enemy site
         const sq = getSquare(grid, bm.pos);
-
         if (sq.owner === opp.id) {
-          // This is an enemy site. Check for a defender.
+          // Check for Defend
           const defenders = friendlyMinions(opp.id).filter(
             d => !d.tapped && cardinalDist(d.pos, bm.pos) <= 1 && canTarget(bm, d)
           );
-
           if (defenders.length > 0) {
-            // Nearest defender moves in to intercept
             const def = [...defenders].sort(
               (a, b) => cardinalDist(a.pos, bm.pos) - cardinalDist(b.pos, bm.pos)
             )[0];
-
             const fromPos = def.pos;
-            def.pos = { ...bm.pos }; // defender moves to contested square
+            def.pos   = { ...bm.pos };
             def.tapped = true;
-
             emit(`T${turn} [${opp.id}] ${def.card.name} defends from (${fromPos.col},${fromPos.row})`);
-
             if (bm.stealthy) bm.stealthy = false;
             const { attackerDies, defenderDies } = resolveFight(bm, def);
             bm.tapped = true;
-
             emit(`T${turn} [${active.id}] ${bm.card.name} vs defender ${def.card.name}`);
-            if (defenderDies) {
-              removeMinion(def);
-              emit(`  → ${def.card.name} destroyed`);
-            }
-            if (attackerDies) {
-              removeMinion(bm);
-              emit(`  → ${bm.card.name} destroyed by defender`);
-            }
+            if (defenderDies) { removeMinion(def); emit(`  → ${def.card.name} destroyed`); }
+            if (attackerDies) { removeMinion(bm);  emit(`  → ${bm.card.name} destroyed by defender`); }
           } else {
-            // Undefended enemy site! Attack → deal power to enemy avatar
+            // Undefended site — deal damage to avatar
             if (bm.stealthy) bm.stealthy = false;
             bm.tapped = true;
             active.siteAttacks++;
-            damageAvatar(opp, bm.card.attack, `${bm.card.name} (site attack)`);
+            damageAvatar(opp, effAtk(bm), `${bm.card.name} (site attack)`);
             emit(`T${turn} [${active.id}] ${bm.card.name} attacks undefended site at (${bm.pos.col},${bm.pos.row})`);
           }
         }
-        // If neither enemy minion nor enemy site, minion just moved — will continue next turn
       }
     }
   }
 
-  // ─── Main turn loop ──────────────────────────────────────────────────────
+  // ─── Main turn loop ───────────────────────────────────────────────────────
 
   let turn = 0;
-  // Capture initial board state (turn 0) before any actions
   if (keepLog) snapshots.push(captureSnapshot(0, "A"));
 
   while (turn < MAX_TURNS && pA.avatarLife > 0 && pB.avatarLife > 0) {
@@ -833,62 +878,52 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     const active  = turn % 2 === 1 ? pA : pB;
     const passive = turn % 2 === 1 ? pB : pA;
 
-    // ── Start of turn: untap all friendly units, reset avatar tap ────────────
-    for (const m of friendlyMinions(active.id)) {
-      m.tapped = false;
-      m.sick   = false; // summoning sickness expires at start of owner's next turn
-    }
+    // Untap / clear flags
+    for (const m of friendlyMinions(active.id)) { m.tapped = false; m.sick = false; }
     active.avatarTapUsed = false;
 
-    // ── Refresh mana ─────────────────────────────────────────────────────────
+    // Refresh mana (sites + structure artifacts)
     active.mana      = countSites(grid, active.id);
     active.threshold = siteThreshold(grid, active.id);
+    for (const art of artifacts)
+      if (art.owner === active.id && art.effect.kind === "structure") active.mana += art.effect.manaBonus;
 
-    // ── Draw (player A skips draw on turn 1) ─────────────────────────────────
-    if (!(turn === 1 && active.id === "A")) {
-      drawOne(active);
-    }
+    // Draw
+    if (!(turn === 1 && active.id === "A")) drawOne(active);
 
-    // ── Play a site (Avatar Tap ability) ─────────────────────────────────────
+    // Site placement
     playSite(active);
 
-    // ── Play cards from hand ──────────────────────────────────────────────────
+    // Play cards
     playCards(active);
 
-    // ── Combat ────────────────────────────────────────────────────────────────
+    // Combat
     combatStep(active);
 
-    // ── End of turn: clear all temp damage ───────────────────────────────────
-    for (const m of allMinions()) m.tempDamage = 0;
+    // End of turn: clear temp damage and temporary buff auras
+    for (const m of minions) m.tempDamage = 0;
+    for (let i = auras.length - 1; i >= 0; i--)
+      if (auras[i].temporary && auras[i].owner === active.id) auras.splice(i, 1);
 
-    // Capture board state after all actions this turn
     if (keepLog) snapshots.push(captureSnapshot(turn, active.id));
 
-    void passive; // passive player referenced through pA/pB above
+    void passive;
   }
 
-  // ─── Determine winner ─────────────────────────────────────────────────────
+  // ── Winner ────────────────────────────────────────────────────────────────
   let winner: "A" | "B" | "draw";
   if      (pA.avatarLife <= 0 && pB.avatarLife <= 0) winner = "draw";
   else if (pA.avatarLife <= 0)                        winner = "B";
   else if (pB.avatarLife <= 0)                        winner = "A";
-  else winner = pA.avatarLife > pB.avatarLife ? "A"
-              : pB.avatarLife > pA.avatarLife ? "B"
-              : "draw";
+  else winner = pA.avatarLife > pB.avatarLife ? "A" : pB.avatarLife > pA.avatarLife ? "B" : "draw";
 
   return {
-    winner,
-    turns: turn,
-    log,
-    snapshots,
+    winner, turns: turn, log, snapshots,
     finalLifeA: Math.max(0, pA.avatarLife),
     finalLifeB: Math.max(0, pB.avatarLife),
-    sitesA:    pA.sitesPlaced,
-    sitesB:    pB.sitesPlaced,
-    minionsA:  pA.minionsDeployed,
-    minionsB:  pB.minionsDeployed,
-    siteAtksA: pA.siteAttacks,
-    siteAtksB: pB.siteAttacks,
+    sitesA: pA.sitesPlaced,   sitesB: pB.sitesPlaced,
+    minionsA: pA.minionsDeployed, minionsB: pB.minionsDeployed,
+    siteAtksA: pA.siteAttacks, siteAtksB: pB.siteAttacks,
   };
 }
 
@@ -908,7 +943,6 @@ export interface SimulationReport {
   avgTurns:        string;
   avgFinalLifeA:   string;
   avgFinalLifeB:   string;
-  // ── Per-game averages for analysis ────────────────────────────────────────
   avgSitesA:       string;
   avgSitesB:       string;
   avgMinionsA:     string;
@@ -918,11 +952,7 @@ export interface SimulationReport {
   sampleGame:      GameResult;
 }
 
-export function runSimulation(
-  specA: DeckSpec,
-  specB: DeckSpec,
-  iterations: number,
-): SimulationReport {
+export function runSimulation(specA: DeckSpec, specB: DeckSpec, iterations: number): SimulationReport {
   let winsA = 0, winsB = 0, draws = 0;
   let totalTurns = 0, totalLifeA = 0, totalLifeB = 0;
   let totalSitesA = 0, totalSitesB = 0;
@@ -931,44 +961,32 @@ export function runSimulation(
   let sampleGame: GameResult | null = null;
 
   for (let i = 0; i < iterations; i++) {
-    const result = simulateGame(specA, specB, i === 0);
-    if      (result.winner === "A") winsA++;
-    else if (result.winner === "B") winsB++;
-    else                            draws++;
-    totalTurns   += result.turns;
-    totalLifeA   += result.finalLifeA;
-    totalLifeB   += result.finalLifeB;
-    totalSitesA  += result.sitesA;
-    totalSitesB  += result.sitesB;
-    totalMinionsA  += result.minionsA;
-    totalMinionsB  += result.minionsB;
-    totalSiteAtksA += result.siteAtksA;
-    totalSiteAtksB += result.siteAtksB;
-    if (i === 0) sampleGame = result;
+    const r = simulateGame(specA, specB, i === 0);
+    if      (r.winner === "A") winsA++;
+    else if (r.winner === "B") winsB++;
+    else                       draws++;
+    totalTurns     += r.turns;
+    totalLifeA     += r.finalLifeA;  totalLifeB     += r.finalLifeB;
+    totalSitesA    += r.sitesA;      totalSitesB    += r.sitesB;
+    totalMinionsA  += r.minionsA;    totalMinionsB  += r.minionsB;
+    totalSiteAtksA += r.siteAtksA;   totalSiteAtksB += r.siteAtksB;
+    if (i === 0) sampleGame = r;
   }
 
   const pct = (n: number) => ((n / iterations) * 100).toFixed(1) + "%";
   const avg = (n: number) => (n / iterations).toFixed(1);
 
   return {
-    deckAName:       specA.name,
-    deckBName:       specB.name,
-    avatarA:         specA.avatar.name,
-    avatarB:         specB.avatar.name,
-    iterations,
-    winsA, winsB, draws,
-    winRateA:        pct(winsA),
-    winRateB:        pct(winsB),
-    avgTurns:        avg(totalTurns),
-    avgFinalLifeA:   avg(totalLifeA),
-    avgFinalLifeB:   avg(totalLifeB),
-    avgSitesA:       avg(totalSitesA),
-    avgSitesB:       avg(totalSitesB),
-    avgMinionsA:     avg(totalMinionsA),
-    avgMinionsB:     avg(totalMinionsB),
-    avgSiteAttacksA: avg(totalSiteAtksA),
-    avgSiteAttacksB: avg(totalSiteAtksB),
-    sampleGame:      sampleGame!,
+    deckAName: specA.name, deckBName: specB.name,
+    avatarA: specA.avatar.name, avatarB: specB.avatar.name,
+    iterations, winsA, winsB, draws,
+    winRateA: pct(winsA), winRateB: pct(winsB),
+    avgTurns:      avg(totalTurns),
+    avgFinalLifeA: avg(totalLifeA),   avgFinalLifeB: avg(totalLifeB),
+    avgSitesA:     avg(totalSitesA),  avgSitesB:     avg(totalSitesB),
+    avgMinionsA:   avg(totalMinionsA),avgMinionsB:   avg(totalMinionsB),
+    avgSiteAttacksA: avg(totalSiteAtksA), avgSiteAttacksB: avg(totalSiteAtksB),
+    sampleGame: sampleGame!,
   };
 }
 
@@ -979,7 +997,6 @@ export function formatReport(r: SimulationReport): string {
     const n = Math.round(parseFloat(pct) / 5);
     return "█".repeat(n) + "░".repeat(20 - n) + " " + pct;
   };
-
   return [
     `## Simulation Results — ${r.iterations} games`,
     ``,
@@ -993,13 +1010,15 @@ export function formatReport(r: SimulationReport): string {
     ``,
     `### Game Stats`,
     `Average game length : ${r.avgTurns} turns`,
-    `Avg final life — A  : ${r.avgFinalLifeA}`,
-    `Avg final life — B  : ${r.avgFinalLifeB}`,
+    `Avg final life — A  : ${r.avgFinalLifeA}  |  B : ${r.avgFinalLifeB}`,
+    `Avg sites placed    : A ${r.avgSitesA}  |  B ${r.avgSitesB}`,
+    `Avg minions deployed: A ${r.avgMinionsA}  |  B ${r.avgMinionsB}`,
+    `Avg site attacks    : A ${r.avgSiteAttacksA}  |  B ${r.avgSiteAttacksB}`,
     ``,
-    `_Models: shared 5×4 grid · dynamic site expansion · mana = sites owned · minions on sites_`,
-    `_Cardinal movement · same-square combat · site attacks → avatar damage · Defend · Death's Door_`,
-    `_Keywords: Airborne · Charge · Ranged · Lethal · Stealth · Burrowing · Ward_`,
-    `_Does not model: unique card text · Submerge · Voidwalk · multiple actions per turn_`,
+    `_Phase 3 model: shared 5×4 grid · site expansion · cardinal movement · same-square combat_`,
+    `_Ranged (fires at 2 squares, no retaliation) · Airborne (8-dir) · Charge · Lethal · Stealth · Burrowing · Ward_`,
+    `_Spell effects: Destroy · Damage · AoE · Draw · Bounce · Buff · Artifact persistence · Aura enchantments_`,
+    `_Does not model: unique card text · avatar second abilities · Submerge · Voidwalk_`,
     ``,
     `### Sample Game (Game 1 of ${r.iterations})`,
     `Winner: Deck ${r.sampleGame.winner} in ${r.sampleGame.turns} turns`,
@@ -1009,9 +1028,8 @@ export function formatReport(r: SimulationReport): string {
   ].filter(l => l !== undefined).join("\n");
 }
 
-// ─── Deck-building helpers (backward-compatible) ──────────────────────────────
+// ─── Deck-building helpers ────────────────────────────────────────────────────
 
-// Minimal API shape we need from the curiosa.io response
 export interface ApiDeckCard {
   quantity: number;
   card: {
@@ -1027,21 +1045,19 @@ export interface ApiDeckCard {
   };
 }
 
-/** Convert raw API card entries (with quantity) into an expanded SimCard array */
 export function toSimCards(
   apiCards: ApiDeckCard[],
-  /** Optional card-name → rulesText lookup for keyword detection */
   rulesLookup?: Map<string, string>,
-  /** Optional card-name → life total lookup (avatars only; from guardian.life) */
-  lifeLookup?: Map<string, number>,
+  lifeLookup?:  Map<string, number>,
 ): SimCard[] {
   const out: SimCard[] = [];
   for (const entry of apiCards) {
-    const c = entry.card;
+    const c         = entry.card;
     const rulesText = rulesLookup?.get(c.name) ?? "";
+    const type      = c.type as SimCard["type"];
     const simCard: SimCard = {
       name:     c.name,
-      type:     c.type as SimCard["type"],
+      type,
       attack:   c.attack   ?? 0,
       defense:  c.defense  ?? 0,
       life:     lifeLookup?.get(c.name) ?? 0,
@@ -1052,10 +1068,11 @@ export function toSimCards(
       elements: (c.elements ?? []).map((e: { id: string }) => e.id),
       keywords: parseKeywords(rulesText),
       rulesText,
+      spellEffect:    type === "Magic"    ? parseSpellEffect(rulesText)    : undefined,
+      artifactEffect: type === "Artifact" ? parseArtifactEffect(rulesText) : undefined,
+      auraEffect:     type === "Aura"     ? parseAuraEffect(rulesText)     : undefined,
     };
-    for (let i = 0; i < (entry.quantity ?? 1); i++) {
-      out.push(simCard);
-    }
+    for (let i = 0; i < (entry.quantity ?? 1); i++) out.push(simCard);
   }
   return out;
 }
