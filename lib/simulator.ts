@@ -21,6 +21,8 @@ export interface SimCard {
   auraEffect?:      AuraEffect;
   siteEffect?:      SiteEffect;
   avatarAbilities?: AvatarAbility[];
+  /** S10: occupies two squares — second pos is one step toward enemy on deploy. */
+  oversized?: boolean;
 }
 
 export interface DeckSpec {
@@ -1024,6 +1026,14 @@ interface BoardMinion {
   stealthy: boolean;
   skipNextUntap: boolean; // flooded squares: stays tapped through opponent's untap step
   temporary: boolean;     // animated auras etc: removed at end of the turn they entered
+  /** S1: set on first retaliation in a combat step; prevents a unit retaliating twice. */
+  retaliatedThisCombatStep: boolean;
+  /** S7: true when a burrowing unit is atop a non-water site. */
+  burrowed: boolean;
+  /** S7: true when a submerge unit is atop a water site. */
+  submerged: boolean;
+  /** S10: second occupied square for oversized units (1 step toward enemy). */
+  oversizedSecondPos: Pos | null;
 }
 
 /** Artifact in play — either equipment (attached to a minion) or a structure (on a site). */
@@ -1055,6 +1065,8 @@ interface PlayerState {
   avatarPos: Pos;
   deathsDoor:             boolean;
   deathsDoorFiredThisTurn: boolean; // immune to damage for the rest of the turn Death's Door triggered
+  /** S8: set when the player's deck(s) run out — they lose at end of that turn. */
+  deckOutPending: boolean;
   atlasDeck:  SimCard[];
   spellDeck:  SimCard[];
   atlasHand:  SimCard[];
@@ -1111,6 +1123,7 @@ function initPlayer(spec: DeckSpec, id: "A" | "B"): PlayerState {
     avatarPos:      { col: AVATAR_COL, row: id === "A" ? 0 : 3 },
     deathsDoor:              false,
     deathsDoorFiredThisTurn: false,
+    deckOutPending:          false,
     atlasDeck:      atlasDeckInit,
     spellDeck:      spellDeckInit,
     atlasHand:      [],
@@ -1173,12 +1186,21 @@ function initPlayer(spec: DeckSpec, id: "A" | "B"): PlayerState {
 function drawOne(p: PlayerState): void {
   if (p.unifiedDeck) {
     // Magician: single deck, everything goes to spellHand
-    if (p.spellDeck.length > 0) p.spellHand.push(p.spellDeck.pop()!);
+    if (p.spellDeck.length > 0) {
+      p.spellHand.push(p.spellDeck.pop()!);
+    } else {
+      p.deckOutPending = true; // S8: deck exhausted → player loses
+    }
     return;
   }
   const wantAtlas = (p.atlasHand.length <= p.spellHand.length && p.atlasDeck.length > 0) || p.spellDeck.length === 0;
-  if (wantAtlas && p.atlasDeck.length > 0) p.atlasHand.push(p.atlasDeck.pop()!);
-  else if (p.spellDeck.length > 0)          p.spellHand.push(p.spellDeck.pop()!);
+  if (wantAtlas && p.atlasDeck.length > 0) {
+    p.atlasHand.push(p.atlasDeck.pop()!);
+  } else if (p.spellDeck.length > 0) {
+    p.spellHand.push(p.spellDeck.pop()!);
+  } else if (p.atlasDeck.length === 0 && p.spellDeck.length === 0) {
+    p.deckOutPending = true; // S8: both decks empty → player loses
+  }
 }
 
 function canPlay(card: SimCard, threshold: Threshold, mana: number): boolean {
@@ -1192,18 +1214,18 @@ function minionValue(c: SimCard): number { return (c.attack ?? 0) + (c.defense ?
 
 // ─── Site placement ───────────────────────────────────────────────────────────
 
-function findSitePlacementSquares(grid: Grid, minions: BoardMinion[], player: PlayerState): Pos[] {
+function findSitePlacementSquares(grid: Grid, _minions: BoardMinion[], player: PlayerState): Pos[] {
   const owned = ownedSites(grid, player.id);
   if (owned.length === 0) {
     const sq = getSquare(grid, player.avatarPos);
     return !sq.owner ? [player.avatarPos] : [];
   }
-  const minionKeys = new Set(minions.map(m => posKey(m.pos)));
+  // S12: sites may be placed adjacent to existing sites even if a minion occupies the square.
   const candidates = new Set<string>();
   for (const site of owned)
     for (const nb of cardinalNeighbors(site)) {
       const sq = getSquare(grid, nb);
-      if (!sq.owner && !minionKeys.has(posKey(nb))) candidates.add(posKey(nb));
+      if (!sq.owner) candidates.add(posKey(nb));
     }
   return [...candidates].map(k => { const [c, r] = k.split(",").map(Number); return { col: c, row: r }; });
 }
@@ -1309,7 +1331,8 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         v += ab.attackBonus;
     return v;
   }
-  function effDef(bm: BoardMinion): number {
+  /** S2: base defense before accumulated damage (auras/artifacts/passive buffs included). */
+  function effBaseDefense(bm: BoardMinion): number {
     let v = bm.card.defense;
     for (const a of auras)     if (a.attachedTo === bm) v += a.effect.defenseBonus;
     for (const a of artifacts) if (a.attachedTo === bm) v += a.effect.defenseBonus;
@@ -1318,6 +1341,10 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       if (ab.kind === "passive_buff" && (!ab.elementFilter || bm.card.elements.includes(ab.elementFilter)))
         v += ab.defenseBonus;
     return v;
+  }
+  /** S2: effective defense = base defense minus accumulated damage this turn. */
+  function effDef(bm: BoardMinion): number {
+    return Math.max(0, effBaseDefense(bm) - bm.tempDamage);
   }
   function effKws(bm: BoardMinion): string[] {
     const kws = [...bm.card.keywords];
@@ -1388,12 +1415,11 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
   /** Can attacker see / legally target a defender? */
   function canTarget(atk: BoardMinion, def: BoardMinion): boolean {
     if (def.stealthy) return false;
-    // Burrowing: can only be targeted by burrowing, airborne, or ranged units
-    if (bHasKw(def, "burrowing")) {
+    // S7: burrowed/submerged state (set when unit is on matching terrain) replaces keyword checks.
+    if (def.burrowed) {
       return bHasKw(atk, "burrowing") || bHasKw(atk, "airborne") || bHasKw(atk, "ranged");
     }
-    // Submerge: can only be targeted by submerged, airborne, or ranged units
-    if (bHasKw(def, "submerge")) {
+    if (def.submerged) {
       return bHasKw(atk, "submerge") || bHasKw(atk, "airborne") || bHasKw(atk, "ranged");
     }
     return true;
@@ -1404,11 +1430,17 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
   interface FightResult { attackerDies: boolean; defenderDies: boolean; }
 
   function resolveFight(atk: BoardMinion, def: BoardMinion): FightResult {
+    // S1: a unit that already retaliated this combat step cannot retaliate again.
+    const defDeals = def.retaliatedThisCombatStep ? 0 : def.card.attack;
+    def.retaliatedThisCombatStep = true;
+    const atkDeals = effAtk(atk);
+    // S2: accumulate damage (persists until end of turn; effDef subtracts it).
+    atk.tempDamage += defDeals;
+    def.tempDamage += atkDeals;
     // Rule: Lethal requires actual damage (>0 attack) to trigger.
-    // A 0-attack Lethal unit deals 0 damage and should NOT kill the defender.
     return {
-      attackerDies: def.card.attack >= effDef(atk) || (def.card.attack > 0 && bHasKw(def, "lethal")),
-      defenderDies: effAtk(atk)     >= effDef(def) || (effAtk(atk) > 0  && bHasKw(atk, "lethal")),
+      attackerDies: effDef(atk) <= 0 || (defDeals > 0 && bHasKw(def, "lethal")),
+      defenderDies: effDef(def) <= 0 || (atkDeals > 0 && bHasKw(atk, "lethal")),
     };
   }
 
@@ -1417,9 +1449,14 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
   function resolveRangedAttack(atk: BoardMinion, def: BoardMinion, casterName: string): void {
     if (atk.stealthy) atk.stealthy = false;
     atk.tapped = true;
-    // One-way: attacker deals damage; defender only fights back if also ranged
-    const defenderDies = effAtk(atk) >= effDef(def) || bHasKw(atk, "lethal");
-    const attackerDies = bHasKw(def, "ranged") && (def.card.attack >= effDef(atk) || bHasKw(def, "lethal"));
+    // S2: accumulate damage
+    def.tempDamage += effAtk(atk);
+    const defCanReturn = bHasKw(def, "ranged") && !def.retaliatedThisCombatStep;
+    const defReturn = defCanReturn ? def.card.attack : 0;
+    if (defCanReturn) { def.retaliatedThisCombatStep = true; atk.tempDamage += defReturn; }
+    // One-way: attacker deals damage; defender only retaliates if also ranged
+    const defenderDies = effDef(def) <= 0 || (effAtk(atk) > 0 && bHasKw(atk, "lethal"));
+    const attackerDies = defCanReturn && (effDef(atk) <= 0 || (defReturn > 0 && bHasKw(def, "lethal")));
     emit(`T${turn} [${casterName}] ${atk.card.name} fires at ${def.card.name} (ranged)`);
     if (defenderDies) { removeMinion(def); emit(`  → ${def.card.name} destroyed`); }
     if (attackerDies) { removeMinion(atk); emit(`  → ${atk.card.name} shot down in return`); }
@@ -1637,6 +1674,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
               card: tokenCard2, pos, owner: active.id,
               tapped: false, sick: true, tempDamage: 0, stealthy: false,
               skipNextUntap: false, temporary: false,
+              retaliatedThisCombatStep: false, burrowed: false, submerged: false, oversizedSecondPos: null,
             };
             minions.push(bmT);
             active.minionsDeployed++;
@@ -1893,6 +1931,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
               card: best, pos, owner: p.id,
               tapped: false, sick: true, tempDamage: 0,
               stealthy: hasKw(best, "stealth"), skipNextUntap: false, temporary: false,
+              retaliatedThisCombatStep: false, burrowed: false, submerged: false, oversizedSecondPos: null,
             };
             minions.push(bmB);
             p.minionsDeployed++;
@@ -1957,6 +1996,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
             card: skelCard, pos, owner: active.id,
             tapped: false, sick: true, tempDamage: 0,
             stealthy: false, skipNextUntap: false, temporary: false,
+            retaliatedThisCombatStep: false, burrowed: false, submerged: false, oversizedSecondPos: null,
           });
           active.minionsDeployed++;
           emit(`T${turn} [${active.id}] ${nbSq.site.name}: summons Skeleton at (${pos.col},${pos.row})`);
@@ -2270,7 +2310,8 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
           };
           minions.push({ card: tokenCard, pos, owner: active.id,
             tapped: false, sick: true, tempDamage: 0, stealthy: false,
-            skipNextUntap: false, temporary: false });
+            skipNextUntap: false, temporary: false,
+            retaliatedThisCombatStep: false, burrowed: false, submerged: false, oversizedSecondPos: null });
           summoned++;
         }
         emit(`T${turn} [${active.id}] casts ${cardName}: summons ${summoned} token(s)`);
@@ -2311,7 +2352,8 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
             const pos = chooseMinionPosition(free, opp.avatarPos);
             minions.push({ card: best, pos, owner: active.id,
               tapped: true, sick: true, tempDamage: 0, stealthy: false,
-              skipNextUntap: false, temporary: false });
+              skipNextUntap: false, temporary: false,
+              retaliatedThisCombatStep: false, burrowed: false, submerged: false, oversizedSecondPos: null });
             emit(`T${turn} [${active.id}] casts ${cardName}: raises ${best.name} from the dead`);
           }
         }
@@ -2464,6 +2506,14 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
           card, pos, owner: active.id,
           tapped: false, sick: !hasKw(card, "charge"), tempDamage: 0,
           stealthy: hasKw(card, "stealth"), skipNextUntap: false, temporary: false,
+          retaliatedThisCombatStep: false, burrowed: false, submerged: false,
+          // S10: oversized units occupy a second square one step toward the enemy.
+          oversizedSecondPos: card.oversized
+            ? ((): Pos | null => {
+                const step = cardinalStep(pos, opp.avatarPos);
+                return inBounds(step) && !posEq(step, pos) ? step : null;
+              })()
+            : null,
         };
         minions.push(bm);
         active.minionsDeployed++;
@@ -2541,6 +2591,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
               card: spiritCard, pos, owner: active.id,
               tapped: false, sick: true, tempDamage: 0,
               stealthy: false, skipNextUntap: false, temporary: false,
+              retaliatedThisCombatStep: false, burrowed: false, submerged: false, oversizedSecondPos: null,
             };
             minions.push(bm2);
             active.minionsDeployed++;
@@ -2578,6 +2629,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
               card: animCard, pos, owner: active.id,
               tapped: false, sick: false, tempDamage: 0,
               stealthy: false, skipNextUntap: false, temporary: true,
+              retaliatedThisCombatStep: false, burrowed: false, submerged: false, oversizedSecondPos: null,
             };
             minions.push(bm3);
             active.minionsDeployed++;
@@ -2608,12 +2660,36 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
   function combatStep(active: PlayerState): void {
     const opp = opponent(active.id);
 
+    // S1: reset multi-way combat flag for all minions at the start of each combat step.
+    for (const m of minions) m.retaliatedThisCombatStep = false;
+
     // Tracks which passive_first_attack_undefendable sites have fired this turn (by posKey)
     const usedFirstAttack = new Set<string>();
 
     const actors = friendlyMinions(active.id)
       .filter(bCanAttack)
       .sort((a, b) => effAtk(b) - effAtk(a));
+
+    // ── S9: cardinal-direction line-of-sight for ranged attacks ────────────
+    // Walks up to 2 steps in each cardinal direction; friendlies block the
+    // line; stops at the first enemy hit.
+    function rangedLOS(shooter: BoardMinion): BoardMinion[] {
+      const results: BoardMinion[] = [];
+      const dirs = [
+        { dc: 1, dr: 0 }, { dc: -1, dr: 0 },
+        { dc: 0, dr: 1 }, { dc: 0, dr: -1 },
+      ];
+      for (const dir of dirs) {
+        for (let i = 1; i <= 2; i++) {
+          const p = { col: shooter.pos.col + dir.dc * i, row: shooter.pos.row + dir.dr * i };
+          if (!inBounds(p)) break;
+          if (minions.some(m => m.owner === shooter.owner && m !== shooter && posEq(m.pos, p))) break;
+          const enemy = minions.find(m => m.owner !== shooter.owner && posEq(m.pos, p) && canTarget(shooter, m));
+          if (enemy) { results.push(enemy); break; }
+        }
+      }
+      return results;
+    }
 
     for (const bm of actors) {
       if (!minions.includes(bm)) continue;
@@ -2622,13 +2698,11 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       const isRanged = bHasKw(bm, "ranged");
 
       // ── Ranged attack path ──────────────────────────────────────────────
-      // Ranged units do NOT move to the target's square.
-      // They attack any enemy within 2 cardinal steps from their current position.
-      // The defender cannot retaliate (unless they also have Ranged).
+      // S9: targets found via cardinal LOS (not simple distance).
+      // S3: if the best target has 0 ATK (can't retaliate), fall through to
+      //     basic melee — no point wasting the ranged shot.
       if (isRanged) {
-        const rangedTargets = enemyMinions(active.id).filter(
-          e => canTarget(bm, e) && cardinalDist(bm.pos, e.pos) <= 2
-        );
+        const rangedTargets = rangedLOS(bm); // S9
         if (rangedTargets.length > 0) {
           // Prefer killable, then nearest, then weakest
           const target = [...rangedTargets].sort((a, b) => {
@@ -2636,20 +2710,42 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
             const bKill = effAtk(bm) >= effDef(b) ? 0 : 1;
             return aKill - bKill || cardinalDist(bm.pos, a.pos) - cardinalDist(bm.pos, b.pos);
           })[0];
-          resolveRangedAttack(bm, target, active.id);
+          // S3: target with 0 ATK → skip ranged, fall through to basic combat
+          if (target.card.attack > 0) {
+            resolveRangedAttack(bm, target, active.id);
+            continue;
+          }
+          // else: fall through to basic attack path below
+        } else {
+          // No target in LOS — advance 1 cardinal step toward nearest enemy
+          const closestEnemy = [...enemyMinions(active.id)].sort(
+            (a, b) => cardinalDist(bm.pos, a.pos) - cardinalDist(bm.pos, b.pos)
+          )[0];
+          const targetPos2 = closestEnemy?.pos ?? opp.avatarPos;
+          const step = cardinalStep(bm.pos, targetPos2);
+          if (inBounds(step) && !posEq(step, bm.pos)) {
+            handleSiteExit(bm, bm.pos);
+            emit(`T${turn} [${active.id}] ${bm.card.name} advances (${bm.pos.col},${bm.pos.row})→(${step.col},${step.row})`);
+            bm.pos = step;
+            if (handleSiteEntry(bm)) continue;
+            // S5: after advancing, check for intercept by adjacent enemy units.
+            const interceptors = enemyMinions(active.id).filter(
+              e => !e.tapped && cardinalDist(e.pos, bm.pos) === 1 && canTarget(e, bm)
+            );
+            if (interceptors.length > 0 && minions.includes(bm)) {
+              const intc = [...interceptors].sort((a, b) => effAtk(b) - effAtk(a))[0];
+              const intcFrom = { ...intc.pos };
+              intc.pos   = { ...bm.pos };
+              intc.tapped = true;
+              emit(`T${turn} [${opp.id}] ${intc.card.name} intercepts from (${intcFrom.col},${intcFrom.row})`);
+              const { attackerDies: intcDies, defenderDies: bmDiesI } = resolveFight(intc, bm);
+              bm.tapped = true;
+              if (bmDiesI)   { removeMinion(bm);   emit(`  → ${bm.card.name} destroyed by intercept`); }
+              if (intcDies)  { removeMinion(intc);  emit(`  → ${intc.card.name} destroyed`); }
+            }
+          }
           continue;
         }
-        // No target in range — fall through to move 1 step closer
-        const closestEnemy = [...enemyMinions(active.id)].sort(
-          (a, b) => cardinalDist(bm.pos, a.pos) - cardinalDist(bm.pos, b.pos)
-        )[0];
-        const targetPos = closestEnemy?.pos ?? opp.avatarPos;
-        const step = cardinalStep(bm.pos, targetPos);
-        if (inBounds(step) && !posEq(step, bm.pos)) {
-          emit(`T${turn} [${active.id}] ${bm.card.name} advances (${bm.pos.col},${bm.pos.row})→(${step.col},${step.row})`);
-          bm.pos = step;
-        }
-        continue;
       }
 
       // ── Ground / airborne attack path ───────────────────────────────────
@@ -2677,6 +2773,29 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       if (!posEq(bm.pos, targetPos)) {
         const newPos = airborne ? diagonalStep(bm.pos, targetPos) : cardinalStep(bm.pos, targetPos);
         if (inBounds(newPos) && !posEq(newPos, bm.pos)) {
+          // ── S4: survival retreat ────────────────────────────────────────
+          // If every enemy at the destination would kill us, retreat toward
+          // the nearest friendly site instead of advancing.
+          const enemiesAtNew = enemyMinions(active.id).filter(e => posEq(e.pos, newPos) && canTarget(bm, e));
+          if (enemiesAtNew.length > 0 &&
+              enemiesAtNew.every(e => e.card.attack >= effDef(bm) || (e.card.attack > 0 && bHasKw(e, "lethal")))) {
+            const friendlySites = ownedSites(grid, active.id);
+            if (friendlySites.length > 0 && !posEq(bm.pos, friendlySites[0])) {
+              const nearest = [...friendlySites].sort(
+                (a, b) => cardinalDist(bm.pos, a) - cardinalDist(bm.pos, b)
+              )[0];
+              if (!posEq(bm.pos, nearest)) {
+                const retreatStep = airborne ? diagonalStep(bm.pos, nearest) : cardinalStep(bm.pos, nearest);
+                if (inBounds(retreatStep) && !posEq(retreatStep, bm.pos)) {
+                  handleSiteExit(bm, bm.pos);
+                  emit(`T${turn} [${active.id}] ${bm.card.name} retreats (${bm.pos.col},${bm.pos.row})→(${retreatStep.col},${retreatStep.row})`);
+                  bm.pos = retreatStep;
+                  if (handleSiteEntry(bm)) continue;
+                }
+              }
+            }
+            continue;
+          }
           // ── Entry restriction passives ───────────────────────────────────
           const entrySq = getSquare(grid, newPos);
           // passive_max_one_occupant: blocked if another minion already occupies the square
@@ -2749,6 +2868,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
             const fromPos = def.pos;
             def.pos   = { ...bm.pos };
             def.tapped = true;
+            def.stealthy = false; // S6: defending breaks Stealth
             emit(`T${turn} [${opp.id}] ${def.card.name} defends from (${fromPos.col},${fromPos.row})`);
             if (bm.stealthy) bm.stealthy = false;
             const { attackerDies, defenderDies } = resolveFight(bm, def);
@@ -2848,8 +2968,9 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
           (a, b) => cardinalDist(a.pos, pos) - cardinalDist(b.pos, pos)
         )[0];
         const fromPos = { ...def.pos };
-        def.pos   = { ...pos };
-        def.tapped = true;
+        def.pos    = { ...pos };
+        def.tapped  = true;
+        def.stealthy = false; // S6: defending breaks Stealth
         emit(`T${turn} [${opp.id}] ${def.card.name} defends from (${fromPos.col},${fromPos.row})`);
         const defDies    = avatarAtk >= effDef(def);
         const avatarHurt = effAtk(def) > 0;
@@ -2923,6 +3044,12 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
   // Returns true if the minion was destroyed by a site passive.
   function handleSiteEntry(bm: BoardMinion): boolean {
     const sq  = getSquare(grid, bm.pos);
+    // S7: update sub-region state based on terrain type.
+    if (sq.site) {
+      const isWater = (sq.site.elements ?? []).includes("water");
+      if (bHasKw(bm, "burrowing") && !isWater) bm.burrowed  = true;
+      if (bHasKw(bm, "submerge")  && isWater)  bm.submerged = true;
+    }
     if (!sq.site?.siteEffect) return false;
     const eff = sq.site.siteEffect;
     const siteOwner = player(sq.owner!);
@@ -2962,6 +3089,9 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
 
   // Also fires on exit (Briar Patch, Pilgrim's Shrine, etc.)
   function handleSiteExit(bm: BoardMinion, exitedPos: Pos): void {
+    // S7: leaving any site clears sub-region state.
+    bm.burrowed  = false;
+    bm.submerged = false;
     const sq = getSquare(grid, exitedPos);
     if (!sq.site?.siteEffect) return;
     const eff = sq.site.siteEffect;
@@ -2986,7 +3116,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
   let turn = 0;
   if (keepLog) snapshots.push(captureSnapshot(0, "A"));
 
-  while (turn < MAX_TURNS && pA.avatarLife > 0 && pB.avatarLife > 0) {
+  while (turn < MAX_TURNS && pA.avatarLife > 0 && pB.avatarLife > 0 && !pA.deckOutPending && !pB.deckOutPending) {
     turn++;
     const active  = turn % 2 === 1 ? pA : pB;
     const passive = turn % 2 === 1 ? pB : pA;
@@ -3140,6 +3270,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         card: tokenCard, pos, owner: active.id,
         tapped: false, sick: true, tempDamage: 0, stealthy: false,
         skipNextUntap: false, temporary: false,
+        retaliatedThisCombatStep: false, burrowed: false, submerged: false, oversizedSecondPos: null,
       };
       minions.push(bm);
       active.minionsDeployed++;
@@ -3166,6 +3297,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
               card: candidate, pos: pos2, owner: active.id,
               tapped: false, sick: true, tempDamage: 0, stealthy: hasKw(candidate, "stealth"),
               skipNextUntap: false, temporary: false,
+              retaliatedThisCombatStep: false, burrowed: false, submerged: false, oversizedSecondPos: null,
             };
             minions.push(bm2);
             active.minionsDeployed++;
@@ -3244,7 +3376,11 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
 
   // ── Winner ────────────────────────────────────────────────────────────────
   let winner: "A" | "B" | "draw";
-  if      (pA.avatarLife <= 0 && pB.avatarLife <= 0) winner = "draw";
+  // S8: deck-out takes precedence (a player who ran out of cards loses).
+  if      (pA.deckOutPending && pB.deckOutPending) winner = "draw";
+  else if (pA.deckOutPending)                       winner = "B";
+  else if (pB.deckOutPending)                       winner = "A";
+  else if (pA.avatarLife <= 0 && pB.avatarLife <= 0) winner = "draw";
   else if (pA.avatarLife <= 0)                        winner = "B";
   else if (pB.avatarLife <= 0)                        winner = "A";
   else winner = pA.avatarLife > pB.avatarLife ? "A" : pB.avatarLife > pA.avatarLife ? "B" : "draw";
@@ -3407,6 +3543,8 @@ export function toSimCards(
       auraEffect:      type === "Aura"     ? parseAuraEffect(rulesText)      : undefined,
       siteEffect:      type === "Site"     ? parseSiteEffect(c.name, rulesText) : undefined,
       avatarAbilities: type === "Avatar"   ? lookupAvatarAbilities(c.name)   : undefined,
+      // S10: detect oversized units from rules text.
+      oversized: type === "Minion" && rulesText.toLowerCase().includes("oversized") ? true : undefined,
     };
     for (let i = 0; i < (entry.quantity ?? 1); i++) out.push(simCard);
   }
