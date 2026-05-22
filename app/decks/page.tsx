@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useAuth } from "@clerk/nextjs";
 import type { DeckIndexEntry } from "@/lib/decks";
 import type { ApiDeckCard } from "@/lib/simulator";
 
@@ -39,12 +40,16 @@ function DeckRow({
   expanded,
   fullData,
   loadingId,
+  isFavorited,
+  onToggleFavorite,
 }: {
   deck: DeckIndexEntry;
   onExpand: (id: string) => void;
   expanded: boolean;
   fullData: FullDeckData | null;
   loadingId: string | null;
+  isFavorited: boolean;
+  onToggleFavorite: (deck: DeckIndexEntry) => void;
 }) {
   const isLoading = loadingId === deck.id;
 
@@ -83,22 +88,33 @@ function DeckRow({
               </div>
             )}
           </div>
-          <div className="text-right shrink-0">
+          <div className="text-right shrink-0 flex flex-col items-end gap-1">
             <div className="text-sm text-gray-400">
               <span className="text-pink-400">♥</span> {deck.likes.toLocaleString()}
             </div>
             <div className="text-sm text-gray-400">
               <span className="text-gray-500">👁</span> {deck.views.toLocaleString()}
             </div>
-            <a
-              href={`https://curiosa.io/decks/${deck.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-xs text-amber-500 hover:text-amber-400 mt-1 inline-block"
-              onClick={(e) => e.stopPropagation()}
-            >
-              curiosa.io ↗
-            </a>
+            <div className="flex items-center gap-2 mt-1">
+              <button
+                onClick={(e) => { e.stopPropagation(); onToggleFavorite(deck); }}
+                title={isFavorited ? "Remove from saved" : "Save deck"}
+                className={`text-lg leading-none transition-colors ${
+                  isFavorited ? "text-amber-400" : "text-gray-700 hover:text-amber-500"
+                }`}
+              >
+                ⭐
+              </button>
+              <a
+                href={`https://curiosa.io/decks/${deck.id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="text-xs text-amber-500 hover:text-amber-400"
+                onClick={(e) => e.stopPropagation()}
+              >
+                curiosa.io ↗
+              </a>
+            </div>
           </div>
         </div>
 
@@ -193,6 +209,8 @@ function DeckList({ data, deckId }: { data: FullDeckData; deckId: string }) {
 }
 
 export default function DecksPage() {
+  const { isSignedIn } = useAuth();
+
   const [query, setQuery] = useState("");
   const [avatar, setAvatar] = useState("");
   const [sortBy, setSortBy] = useState<"likes" | "views">("views");
@@ -204,6 +222,53 @@ export default function DecksPage() {
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [deckData, setDeckData] = useState<Record<string, FullDeckData>>({});
   const [loadingDeckId, setLoadingDeckId] = useState<string | null>(null);
+
+  // Favorites state
+  const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
+  const [favMeta, setFavMeta] = useState<Record<string, { name: string; avatar?: string; elements?: string[] }>>({});
+
+  useEffect(() => {
+    if (!isSignedIn) return;
+    fetch("/api/user/favorites")
+      .then((r) => r.json())
+      .then((data: { ids: string[]; meta: Record<string, { name: string; avatar?: string; elements?: string[] }> }) => {
+        setFavoriteIds(new Set(data.ids));
+        setFavMeta(data.meta);
+      })
+      .catch(console.error);
+  }, [isSignedIn]);
+
+  const handleToggleFavorite = useCallback(async (deck: DeckIndexEntry) => {
+    if (!isSignedIn) {
+      alert("Sign in to save decks to your profile.");
+      return;
+    }
+    const isFav = favoriteIds.has(deck.id);
+    if (isFav) {
+      setFavoriteIds((prev) => { const s = new Set(prev); s.delete(deck.id); return s; });
+      await fetch("/api/user/favorites", {
+        method: "DELETE",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ deckId: deck.id }),
+      });
+    } else {
+      setFavoriteIds((prev) => new Set([...prev, deck.id]));
+      setFavMeta((prev) => ({
+        ...prev,
+        [deck.id]: { name: deck.name, avatar: deck.avatarName ?? undefined, elements: deck.elements },
+      }));
+      await fetch("/api/user/favorites", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deckId: deck.id,
+          name: deck.name,
+          avatar: deck.avatarName ?? undefined,
+          elements: deck.elements,
+        }),
+      });
+    }
+  }, [isSignedIn, favoriteIds]);
 
   const search = useCallback(async () => {
     setLoading(true);
@@ -349,6 +414,8 @@ export default function DecksPage() {
                 expanded={expandedId === deck.id}
                 fullData={deckData[deck.id] ?? null}
                 loadingId={loadingDeckId}
+                isFavorited={favoriteIds.has(deck.id)}
+                onToggleFavorite={handleToggleFavorite}
               />
             ))}
           </div>

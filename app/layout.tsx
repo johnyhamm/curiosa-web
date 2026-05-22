@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
+import { ClerkProvider } from "@clerk/nextjs";
+import { NavAuth } from "@/components/NavAuth";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -24,6 +26,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
+    <ClerkProvider>
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
@@ -63,6 +66,7 @@ export default function RootLayout({
                 >
                   Simulate
                 </Link>
+                <NavAuth />
               </div>
             </div>
           </div>
@@ -81,5 +85,6 @@ export default function RootLayout({
         </footer>
       </body>
     </html>
+    </ClerkProvider>
   );
 }

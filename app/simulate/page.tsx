@@ -1,6 +1,7 @@
 "use client";
 
 import { useState } from "react";
+import { useAuth } from "@clerk/nextjs";
 import type { SimulationReport } from "@/lib/simulator";
 import { GridBoard } from "./GridBoard";
 import { DeckPicker } from "./DeckPicker";
@@ -37,6 +38,8 @@ function MatchupBar({ winA, draws, winB }: { winA: number; draws: number; winB: 
 }
 
 export default function SimulatePage() {
+  const { isSignedIn } = useAuth();
+
   const [deckA, setDeckA] = useState("");
   const [deckB, setDeckB] = useState("");
   const [iterations, setIterations] = useState(500);
@@ -44,8 +47,36 @@ export default function SimulatePage() {
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<SimulationReport | null>(null);
   const [snapIdx, setSnapIdx] = useState(0);
+  const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+
+  const saveResult = async () => {
+    if (!report) return;
+    if (!isSignedIn) { alert("Sign in to save simulation results."); return; }
+    setSaveStatus("saving");
+    try {
+      await fetch("/api/user/simulations", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          deckAId: deckA.trim(),
+          deckBId: deckB.trim(),
+          deckAName: report.deckAName,
+          deckBName: report.deckBName,
+          avatarA: report.avatarA,
+          avatarB: report.avatarB,
+          winRateA: report.winRateA,
+          winRateB: report.winRateB,
+          iterations: report.iterations,
+        }),
+      });
+      setSaveStatus("saved");
+    } catch {
+      setSaveStatus("idle");
+    }
+  };
 
   const run = async () => {
+    setSaveStatus("idle");
     if (!deckA.trim() || !deckB.trim()) {
       setError("Both deck A and deck B are required.");
       return;
@@ -244,6 +275,25 @@ export default function SimulatePage() {
             <div className="px-5 py-4 border-t border-gray-800">
               <MatchupBar winA={winANum} draws={drawsNum} winB={winBNum} />
             </div>
+          </div>
+
+          {/* Save result */}
+          <div className="flex justify-end">
+            <button
+              onClick={saveResult}
+              disabled={saveStatus === "saving" || saveStatus === "saved"}
+              className={`text-sm font-semibold px-4 py-2 rounded-lg transition-colors ${
+                saveStatus === "saved"
+                  ? "bg-green-700/40 text-green-300 border border-green-700/40 cursor-default"
+                  : "bg-gray-800 hover:bg-gray-700 text-gray-300 border border-gray-700"
+              }`}
+            >
+              {saveStatus === "saved"
+                ? "✓ Saved to profile"
+                : saveStatus === "saving"
+                ? "Saving…"
+                : "Save result"}
+            </button>
           </div>
 
           {/* Match explanation */}

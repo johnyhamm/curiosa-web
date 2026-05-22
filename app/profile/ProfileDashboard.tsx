@@ -1,0 +1,289 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { useUser } from "@clerk/nextjs";
+import Link from "next/link";
+
+interface FavoriteDeckMeta {
+  name: string;
+  avatar?: string;
+  elements?: string[];
+}
+
+interface FavoritesData {
+  ids: string[];
+  meta: Record<string, FavoriteDeckMeta>;
+}
+
+interface SimSummary {
+  id: string;
+  deckAId: string;
+  deckBId: string;
+  deckAName: string;
+  deckBName: string;
+  avatarA: string;
+  avatarB: string;
+  winRateA: string;
+  winRateB: string;
+  iterations: number;
+  savedAt: string;
+}
+
+function elementBadge(el: string) {
+  const colors: Record<string, string> = {
+    Air: "bg-sky-900/50 text-sky-300",
+    Earth: "bg-green-900/50 text-green-300",
+    Fire: "bg-red-900/50 text-red-300",
+    Water: "bg-blue-900/50 text-blue-300",
+  };
+  return colors[el] ?? "bg-gray-800 text-gray-400";
+}
+
+export function ProfileDashboard() {
+  const { user, isLoaded } = useUser();
+
+  const [favorites, setFavorites] = useState<FavoritesData | null>(null);
+  const [simResults, setSimResults] = useState<SimSummary[] | null>(null);
+  const [tab, setTab] = useState<"favorites" | "simulations">("favorites");
+
+  // Load user data
+  useEffect(() => {
+    fetch("/api/user/favorites")
+      .then((r) => r.json())
+      .then(setFavorites)
+      .catch(console.error);
+
+    fetch("/api/user/simulations")
+      .then((r) => r.json())
+      .then(setSimResults)
+      .catch(console.error);
+  }, []);
+
+  const removeFavorite = async (deckId: string) => {
+    await fetch("/api/user/favorites", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ deckId }),
+    });
+    setFavorites((prev) =>
+      prev
+        ? {
+            ids: prev.ids.filter((id) => id !== deckId),
+            meta: Object.fromEntries(
+              Object.entries(prev.meta).filter(([id]) => id !== deckId)
+            ),
+          }
+        : prev
+    );
+  };
+
+  const removeSimResult = async (id: string) => {
+    await fetch("/api/user/simulations", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    setSimResults((prev) => (prev ? prev.filter((r) => r.id !== id) : prev));
+  };
+
+  if (!isLoaded) {
+    return (
+      <div className="max-w-3xl mx-auto px-4 py-16 text-center text-gray-500">
+        Loading…
+      </div>
+    );
+  }
+
+  const displayName =
+    user?.fullName ??
+    user?.username ??
+    user?.primaryEmailAddress?.emailAddress ??
+    "User";
+
+  const initials = displayName
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .toUpperCase()
+    .slice(0, 2);
+
+  return (
+    <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10">
+      {/* User header */}
+      <div className="flex items-center gap-4 mb-10">
+        <div className="w-16 h-16 rounded-full bg-amber-500 flex items-center justify-center text-gray-950 font-black text-xl shrink-0 overflow-hidden">
+          {user?.imageUrl ? (
+            <img src={user.imageUrl} alt={displayName} className="w-full h-full object-cover" />
+          ) : (
+            initials
+          )}
+        </div>
+        <div>
+          <h1 className="text-2xl font-bold text-white">{displayName}</h1>
+          <p className="text-sm text-gray-500">{user?.primaryEmailAddress?.emailAddress}</p>
+        </div>
+        <div className="ml-auto">
+          <a
+            href={`https://accounts.clerk.dev/user`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-xs text-amber-500 hover:text-amber-400 border border-amber-500/30 hover:border-amber-400/40 rounded-lg px-3 py-1.5 transition-colors"
+          >
+            Manage account ↗
+          </a>
+        </div>
+      </div>
+
+      {/* Tabs */}
+      <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-lg p-1 mb-6 w-fit">
+        <button
+          onClick={() => setTab("favorites")}
+          className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+            tab === "favorites"
+              ? "bg-amber-500 text-gray-950"
+              : "text-gray-400 hover:text-white"
+          }`}
+        >
+          Saved Decks{favorites ? ` (${favorites.ids.length})` : ""}
+        </button>
+        <button
+          onClick={() => setTab("simulations")}
+          className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+            tab === "simulations"
+              ? "bg-amber-500 text-gray-950"
+              : "text-gray-400 hover:text-white"
+          }`}
+        >
+          Simulations{simResults ? ` (${simResults.length})` : ""}
+        </button>
+      </div>
+
+      {/* Saved Decks tab */}
+      {tab === "favorites" && (
+        <div>
+          {!favorites && (
+            <p className="text-gray-500 text-sm">Loading saved decks…</p>
+          )}
+          {favorites && favorites.ids.length === 0 && (
+            <div className="text-center py-16 text-gray-600">
+              <p className="text-4xl mb-3">⭐</p>
+              <p>No saved decks yet.</p>
+              <p className="text-sm mt-1">
+                Browse the{" "}
+                <Link href="/decks" className="text-amber-500 hover:text-amber-400">
+                  Deck Explorer
+                </Link>{" "}
+                and click the star to save decks here.
+              </p>
+            </div>
+          )}
+          {favorites && favorites.ids.length > 0 && (
+            <div className="flex flex-col gap-3">
+              {favorites.ids.map((deckId) => {
+                const m = favorites.meta[deckId];
+                return (
+                  <div
+                    key={deckId}
+                    className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-center justify-between gap-4 hover:border-gray-700 transition-colors"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-white truncate">{m?.name ?? deckId}</div>
+                      {m?.avatar && (
+                        <div className="text-sm text-gray-500 mt-0.5">Avatar: {m.avatar}</div>
+                      )}
+                      {m?.elements && m.elements.length > 0 && (
+                        <div className="flex flex-wrap gap-1 mt-2">
+                          {m.elements.map((el) => (
+                            <span key={el} className={`text-xs rounded px-1.5 py-0.5 ${elementBadge(el)}`}>
+                              {el}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <a
+                        href={`https://curiosa.io/decks/${deckId}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="text-xs text-amber-500 hover:text-amber-400"
+                      >
+                        View ↗
+                      </a>
+                      <button
+                        onClick={() => removeFavorite(deckId)}
+                        className="text-xs text-gray-600 hover:text-red-400 transition-colors ml-2"
+                        title="Remove from saved"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Simulations tab */}
+      {tab === "simulations" && (
+        <div>
+          {!simResults && (
+            <p className="text-gray-500 text-sm">Loading simulation history…</p>
+          )}
+          {simResults && simResults.length === 0 && (
+            <div className="text-center py-16 text-gray-600">
+              <p className="text-4xl mb-3">⚔️</p>
+              <p>No saved simulations yet.</p>
+              <p className="text-sm mt-1">
+                Run a simulation and click{" "}
+                <span className="text-amber-500">Save Result</span> to log it here.
+              </p>
+            </div>
+          )}
+          {simResults && simResults.length > 0 && (
+            <div className="flex flex-col gap-3">
+              {simResults.map((r) => (
+                <div
+                  key={r.id}
+                  className="bg-gray-900 border border-gray-800 rounded-xl p-4 hover:border-gray-700 transition-colors"
+                >
+                  <div className="flex items-start justify-between gap-4">
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-3 text-sm mb-2">
+                        <span className="font-semibold text-white truncate max-w-[35%]">{r.deckAName}</span>
+                        <span className="text-amber-400 font-black tabular-nums">{r.winRateA}</span>
+                        <span className="text-gray-600">vs</span>
+                        <span className="text-sky-400 font-black tabular-nums">{r.winRateB}</span>
+                        <span className="font-semibold text-white truncate max-w-[35%]">{r.deckBName}</span>
+                      </div>
+                      <div className="flex gap-1 mb-1">
+                        {/* Win bar */}
+                        <div className="flex h-1.5 w-48 rounded-full overflow-hidden gap-px bg-gray-950">
+                          <div className="bg-amber-500 h-full" style={{ width: r.winRateA }} />
+                          <div className="bg-sky-500 h-full" style={{ width: r.winRateB }} />
+                        </div>
+                      </div>
+                      <div className="text-xs text-gray-600">
+                        {r.iterations.toLocaleString()} games ·{" "}
+                        {new Date(r.savedAt).toLocaleDateString()}
+                      </div>
+                    </div>
+                    <button
+                      onClick={() => removeSimResult(r.id)}
+                      className="text-xs text-gray-600 hover:text-red-400 transition-colors shrink-0"
+                      title="Remove"
+                    >
+                      ✕
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+    </div>
+  );
+}
