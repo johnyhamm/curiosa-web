@@ -3,7 +3,17 @@
 import Link from "next/link";
 import { UserButton, SignInButton, SignUpButton, useAuth } from "@clerk/nextjs";
 
+// Baked in at build time — safe to check on the client
+const clerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
+// Outer shell: only mounts the inner component (which calls hooks) when
+// ClerkProvider is guaranteed to be in the tree.
 export function NavAuth() {
+  if (!clerkConfigured) return null;
+  return <NavAuthInner />;
+}
+
+function NavAuthInner() {
   const { isSignedIn, isLoaded } = useAuth();
 
   if (!isLoaded) {

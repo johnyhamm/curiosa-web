@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { useAuthSafe } from "@/lib/useAuthSafe";
 import type { SimulationReport } from "@/lib/simulator";
 import { GridBoard } from "./GridBoard";
 import { DeckPicker } from "./DeckPicker";
@@ -38,7 +38,7 @@ function MatchupBar({ winA, draws, winB }: { winA: number; draws: number; winB: 
 }
 
 export default function SimulatePage() {
-  const { isSignedIn } = useAuth();
+  const { isSignedIn } = useAuthSafe();
 
   const [deckA, setDeckA] = useState("");
   const [deckB, setDeckB] = useState("");

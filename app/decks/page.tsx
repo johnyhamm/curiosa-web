@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
-import { useAuth } from "@clerk/nextjs";
+import { useAuthSafe } from "@/lib/useAuthSafe";
 import type { DeckIndexEntry } from "@/lib/decks";
 import type { ApiDeckCard } from "@/lib/simulator";
 
@@ -209,7 +209,7 @@ function DeckList({ data, deckId }: { data: FullDeckData; deckId: string }) {
 }
 
 export default function DecksPage() {
-  const { isSignedIn } = useAuth();
+  const { isSignedIn } = useAuthSafe();
 
   const [query, setQuery] = useState("");
   const [avatar, setAvatar] = useState("");

@@ -20,13 +20,13 @@ export const metadata: Metadata = {
   description: "Card search, deck explorer, and match simulator for Sorcery: Contested Realm",
 };
 
-export default function RootLayout({
-  children,
-}: Readonly<{
-  children: React.ReactNode;
-}>) {
+// Clerk requires keys to be present — only wrap with ClerkProvider when configured.
+// Without keys the site runs exactly as before: all pages work, auth features are
+// simply hidden until NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is added to the environment.
+const clerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
+
+function AppShell({ children }: { children: React.ReactNode }) {
   return (
-    <ClerkProvider>
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
@@ -85,6 +85,20 @@ export default function RootLayout({
         </footer>
       </body>
     </html>
-    </ClerkProvider>
   );
+}
+
+export default function RootLayout({
+  children,
+}: Readonly<{
+  children: React.ReactNode;
+}>) {
+  if (clerkConfigured) {
+    return (
+      <ClerkProvider>
+        <AppShell>{children}</AppShell>
+      </ClerkProvider>
+    );
+  }
+  return <AppShell>{children}</AppShell>;
 }
