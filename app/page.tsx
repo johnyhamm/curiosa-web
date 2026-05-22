@@ -80,12 +80,6 @@ export default function Home() {
         ))}
       </div>
 
-      {/* MCP note */}
-      <div className="mt-12 p-4 bg-gray-900 border border-gray-800 rounded-lg text-sm text-gray-500 text-center">
-        Also available as an MCP server at{" "}
-        <code className="text-amber-500 font-mono">/api/mcp</code> — connect
-        Claude or any MCP client to query cards and decks directly.
-      </div>
     </div>
   );
 }
