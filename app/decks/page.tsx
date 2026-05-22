@@ -2,16 +2,9 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useAuthSafe } from "@/lib/useAuthSafe";
+import { useDeckSearch } from "@/lib/deck-client-cache";
 import type { DeckIndexEntry } from "@/lib/decks";
 import type { ApiDeckCard } from "@/lib/simulator";
-
-interface DeckApiResponse {
-  total: number;
-  totalIndexed: number | null;
-  results: DeckIndexEntry[];
-  source: "index" | "live";
-  message?: string;
-}
 
 interface FullDeckData {
   decklist: ApiDeckCard[];
@@ -126,7 +119,7 @@ function DeckRow({
       {expanded && (
         <div className="border-t border-gray-800 p-4">
           {isLoading && (
-            <p className="text-gray-500 text-sm">Loading deck...</p>
+            <p className="text-gray-500 text-sm">Loading deck…</p>
           )}
           {fullData && (
             <DeckList data={fullData} deckId={deck.id} />
@@ -144,10 +137,7 @@ function DeckList({ data, deckId }: { data: FullDeckData; deckId: string }) {
   for (const entry of decklist) {
     const type = (entry.card as { type?: string }).type ?? "Other";
     if (!byType.has(type)) byType.set(type, []);
-    const t = entry.card as typeof entry.card & {
-      attack?: number | null;
-      defense?: number | null;
-    };
+    const t = entry.card as typeof entry.card & { attack?: number | null; defense?: number | null };
     const stats = t.attack != null ? ` ${t.attack}/${t.defense}` : "";
     byType.get(type)!.push({ name: entry.card.name, qty: entry.quantity, stats });
   }
@@ -190,13 +180,9 @@ function DeckList({ data, deckId }: { data: FullDeckData; deckId: string }) {
               <div className="space-y-0.5">
                 {group.sort((a, b) => a.name.localeCompare(b.name)).map((c) => (
                   <div key={c.name} className="flex items-center gap-2 text-gray-400">
-                    <span className="text-amber-500 font-mono w-4 text-right shrink-0">
-                      {c.qty}x
-                    </span>
+                    <span className="text-amber-500 font-mono w-4 text-right shrink-0">{c.qty}x</span>
                     <span className="flex-1">{c.name}</span>
-                    {c.stats && (
-                      <span className="text-gray-600 text-xs font-mono">{c.stats}</span>
-                    )}
+                    {c.stats && <span className="text-gray-600 text-xs font-mono">{c.stats}</span>}
                   </div>
                 ))}
               </div>
@@ -208,29 +194,57 @@ function DeckList({ data, deckId }: { data: FullDeckData; deckId: string }) {
   );
 }
 
+const PAGE_SIZE = 30;
+
 export default function DecksPage() {
   const { isSignedIn } = useAuthSafe();
 
-  const [query, setQuery] = useState("");
+  // Filter state
+  const [query,  setQuery]  = useState("");
   const [avatar, setAvatar] = useState("");
   const [sortBy, setSortBy] = useState<"likes" | "views">("views");
-  const [results, setResults] = useState<DeckIndexEntry[] | null>(null);
-  const [apiResponse, setApiResponse] = useState<DeckApiResponse | null>(null);
-  const [loading, setLoading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
+  const [page,   setPage]   = useState(0);
 
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [deckData, setDeckData] = useState<Record<string, FullDeckData>>({});
+  // Client-side search (instant — no API round-trips)
+  const { results: allResults, total, isLoading } = useDeckSearch(query, avatar, sortBy, 500);
+
+  // Paginate locally
+  const pageResults = allResults.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
+  const pageCount   = Math.ceil(allResults.length / PAGE_SIZE);
+
+  // Reset to page 0 whenever filters change
+  useEffect(() => { setPage(0); }, [query, avatar, sortBy]);
+
+  // Deck expand
+  const [expandedId,    setExpandedId]    = useState<string | null>(null);
+  const [deckData,      setDeckData]      = useState<Record<string, FullDeckData>>({});
   const [loadingDeckId, setLoadingDeckId] = useState<string | null>(null);
 
-  // Favorites state
+  const handleExpand = useCallback(async (id: string) => {
+    if (expandedId === id) { setExpandedId(null); return; }
+    setExpandedId(id);
+    if (deckData[id]) return;
+    setLoadingDeckId(id);
+    try {
+      const res = await fetch(`/api/decks/${id}`);
+      if (!res.ok) throw new Error(`HTTP ${res.status}`);
+      const data = (await res.json()) as FullDeckData;
+      setDeckData(prev => ({ ...prev, [id]: data }));
+    } catch (e) {
+      console.error("Failed to load deck:", e);
+    } finally {
+      setLoadingDeckId(null);
+    }
+  }, [expandedId, deckData]);
+
+  // Favorites
   const [favoriteIds, setFavoriteIds] = useState<Set<string>>(new Set());
-  const [favMeta, setFavMeta] = useState<Record<string, { name: string; avatar?: string; elements?: string[] }>>({});
+  const [favMeta,     setFavMeta]     = useState<Record<string, { name: string; avatar?: string; elements?: string[] }>>({});
 
   useEffect(() => {
     if (!isSignedIn) return;
     fetch("/api/user/favorites")
-      .then((r) => r.json())
+      .then(r => r.json())
       .then((data: { ids: string[]; meta: Record<string, { name: string; avatar?: string; elements?: string[] }> }) => {
         setFavoriteIds(new Set(data.ids));
         setFavMeta(data.meta);
@@ -239,128 +253,69 @@ export default function DecksPage() {
   }, [isSignedIn]);
 
   const handleToggleFavorite = useCallback(async (deck: DeckIndexEntry) => {
-    if (!isSignedIn) {
-      alert("Sign in to save decks to your profile.");
-      return;
-    }
+    if (!isSignedIn) { alert("Sign in to save decks to your profile."); return; }
     const isFav = favoriteIds.has(deck.id);
     if (isFav) {
-      setFavoriteIds((prev) => { const s = new Set(prev); s.delete(deck.id); return s; });
+      setFavoriteIds(prev => { const s = new Set(prev); s.delete(deck.id); return s; });
       await fetch("/api/user/favorites", {
         method: "DELETE",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ deckId: deck.id }),
       });
     } else {
-      setFavoriteIds((prev) => new Set([...prev, deck.id]));
-      setFavMeta((prev) => ({
-        ...prev,
-        [deck.id]: { name: deck.name, avatar: deck.avatarName ?? undefined, elements: deck.elements },
-      }));
+      setFavoriteIds(prev => new Set([...prev, deck.id]));
+      setFavMeta(prev => ({ ...prev, [deck.id]: { name: deck.name, avatar: deck.avatarName ?? undefined, elements: deck.elements } }));
       await fetch("/api/user/favorites", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          deckId: deck.id,
-          name: deck.name,
-          avatar: deck.avatarName ?? undefined,
-          elements: deck.elements,
-        }),
+        body: JSON.stringify({ deckId: deck.id, name: deck.name, avatar: deck.avatarName ?? undefined, elements: deck.elements }),
       });
     }
   }, [isSignedIn, favoriteIds]);
-
-  const search = useCallback(async () => {
-    setLoading(true);
-    setError(null);
-    try {
-      const params = new URLSearchParams();
-      if (query)  params.set("q", query);
-      if (avatar) params.set("avatar", avatar);
-      params.set("sort_by", sortBy);
-      params.set("limit", "30");
-
-      const res = await fetch(`/api/decks/search?${params}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as DeckApiResponse;
-      setApiResponse(data);
-      setResults(data.results);
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setLoading(false);
-    }
-  }, [query, avatar, sortBy]);
-
-  const handleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter") search();
-  };
-
-  const handleExpand = useCallback(async (id: string) => {
-    if (expandedId === id) {
-      setExpandedId(null);
-      return;
-    }
-    setExpandedId(id);
-    if (deckData[id]) return;
-
-    setLoadingDeckId(id);
-    try {
-      const res = await fetch(`/api/decks/${id}`);
-      if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as FullDeckData;
-      setDeckData((prev) => ({ ...prev, [id]: data }));
-    } catch (e) {
-      console.error("Failed to load deck:", e);
-    } finally {
-      setLoadingDeckId(null);
-    }
-  }, [expandedId, deckData]);
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
       <h1 className="text-3xl font-bold text-amber-400 mb-2">Deck Explorer</h1>
       <p className="text-gray-400 mb-8 text-sm">
-        Browse 16,000+ public decks from curiosa.io. The first search triggers a background index build if not yet cached.
+        Browse and search decks from curiosa.io. Results filter instantly.
       </p>
 
       {/* Search controls */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-8 flex flex-col gap-4">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-6 flex flex-col gap-4">
         <div className="flex gap-2">
           <input
             type="text"
             value={query}
-            onChange={(e) => setQuery(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Search deck name..."
-            className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white placeholder-gray-500 focus:outline-none focus:border-amber-500 transition-colors"
+            onChange={e => setQuery(e.target.value)}
+            placeholder="Filter by deck name or avatar…"
+            className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white
+              placeholder-gray-500 focus:outline-none focus:border-amber-500 transition-colors"
           />
-          <button
-            onClick={search}
-            disabled={loading}
-            className="bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed text-gray-950 font-semibold px-6 py-2.5 rounded-lg transition-colors shrink-0"
-          >
-            {loading ? "Searching..." : "Search"}
-          </button>
+          {query && (
+            <button
+              onClick={() => setQuery("")}
+              className="px-3 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700 rounded-lg transition-colors"
+            >
+              ✕
+            </button>
+          )}
         </div>
 
         <div className="flex flex-wrap gap-3 items-center">
           <input
             type="text"
             value={avatar}
-            onChange={(e) => setAvatar(e.target.value)}
-            onKeyDown={handleKeyDown}
-            placeholder="Avatar filter (e.g. Necromancer)..."
-            className="flex-1 min-w-40 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white placeholder-gray-500 focus:outline-none focus:border-amber-500 transition-colors text-sm"
+            onChange={e => setAvatar(e.target.value)}
+            placeholder="Avatar filter (e.g. Necromancer)…"
+            className="flex-1 min-w-40 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white
+              placeholder-gray-500 focus:outline-none focus:border-amber-500 transition-colors text-sm"
           />
 
-          <div className="flex gap-1 bg-gray-800 border border-gray-700 rounded-lg p-1">
+          <div className="flex gap-1 bg-gray-800 border border-gray-700 rounded-lg p-1 shrink-0">
             <button
               onClick={() => setSortBy("views")}
               className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                sortBy === "views"
-                  ? "bg-amber-500 text-gray-950"
-                  : "text-gray-400 hover:text-white"
+                sortBy === "views" ? "bg-amber-500 text-gray-950" : "text-gray-400 hover:text-white"
               }`}
             >
               Most Viewed
@@ -368,9 +323,7 @@ export default function DecksPage() {
             <button
               onClick={() => setSortBy("likes")}
               className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                sortBy === "likes"
-                  ? "bg-amber-500 text-gray-950"
-                  : "text-gray-400 hover:text-white"
+                sortBy === "likes" ? "bg-amber-500 text-gray-950" : "text-gray-400 hover:text-white"
               }`}
             >
               Most Liked
@@ -379,52 +332,60 @@ export default function DecksPage() {
         </div>
       </div>
 
-      {/* Error */}
-      {error && (
-        <div className="bg-red-900/30 border border-red-700 rounded-lg p-4 mb-6 text-red-300 text-sm">
-          {error}
-        </div>
-      )}
-
-      {/* Index status message */}
-      {apiResponse?.message && (
-        <div className="bg-blue-900/20 border border-blue-800/40 rounded-lg p-3 mb-6 text-blue-300 text-sm">
-          {apiResponse.message}
-        </div>
+      {/* Result count */}
+      {isLoading ? (
+        <p className="text-gray-500 text-sm mb-4">Loading deck index…</p>
+      ) : (
+        <p className="text-gray-500 text-sm mb-4">
+          {total === 0
+            ? "No decks found."
+            : `${total.toLocaleString()} deck${total !== 1 ? "s" : ""}${query || avatar ? " matching" : ""} · showing ${pageResults.length}`}
+        </p>
       )}
 
       {/* Results */}
-      {results !== null && (
-        <>
-          <p className="text-gray-500 text-sm mb-4">
-            {results.length === 0
-              ? "No decks found."
-              : `Showing ${results.length} deck${results.length !== 1 ? "s" : ""}${
-                  apiResponse?.totalIndexed
-                    ? ` of ${apiResponse.total.toLocaleString()} matching (${apiResponse.totalIndexed.toLocaleString()} total indexed)`
-                    : ` of ${apiResponse?.total ?? results.length}`
-                }`}
-          </p>
-          <div className="flex flex-col gap-3">
-            {results.map((deck) => (
-              <DeckRow
-                key={deck.id}
-                deck={deck}
-                onExpand={handleExpand}
-                expanded={expandedId === deck.id}
-                fullData={deckData[deck.id] ?? null}
-                loadingId={loadingDeckId}
-                isFavorited={favoriteIds.has(deck.id)}
-                onToggleFavorite={handleToggleFavorite}
-              />
-            ))}
-          </div>
-        </>
+      <div className="flex flex-col gap-3">
+        {pageResults.map(deck => (
+          <DeckRow
+            key={deck.id}
+            deck={deck}
+            onExpand={handleExpand}
+            expanded={expandedId === deck.id}
+            fullData={deckData[deck.id] ?? null}
+            loadingId={loadingDeckId}
+            isFavorited={favoriteIds.has(deck.id)}
+            onToggleFavorite={handleToggleFavorite}
+          />
+        ))}
+      </div>
+
+      {/* Pagination */}
+      {pageCount > 1 && (
+        <div className="flex items-center justify-center gap-2 mt-8">
+          <button
+            onClick={() => setPage(p => Math.max(0, p - 1))}
+            disabled={page === 0}
+            className="px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 rounded-lg text-white transition-colors"
+          >
+            ← Prev
+          </button>
+          <span className="text-sm text-gray-500">
+            Page {page + 1} of {pageCount}
+          </span>
+          <button
+            onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}
+            disabled={page >= pageCount - 1}
+            className="px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 rounded-lg text-white transition-colors"
+          >
+            Next →
+          </button>
+        </div>
       )}
 
-      {results === null && !loading && (
+      {/* Empty state */}
+      {!isLoading && total === 0 && !query && !avatar && (
         <div className="text-center py-20 text-gray-600">
-          Enter a search query above and press Search.
+          Loading deck list…
         </div>
       )}
     </div>

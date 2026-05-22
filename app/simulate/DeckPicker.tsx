@@ -1,12 +1,8 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef } from "react";
 import type { DeckIndexEntry } from "@/lib/decks";
-
-interface SearchResponse {
-  results: DeckIndexEntry[];
-  total: number;
-}
+import { useDeckSearch } from "@/lib/deck-client-cache";
 
 function elementDot(el: string) {
   const colors: Record<string, string> = {
@@ -26,11 +22,9 @@ interface DeckPickerProps {
 }
 
 export function DeckPicker({ label, value, onChange, accentColor }: DeckPickerProps) {
-  const [open, setOpen]               = useState(false);
-  const [query, setQuery]             = useState("");
-  const [results, setResults]         = useState<DeckIndexEntry[] | null>(null);
-  const [loading, setLoading]         = useState(false);
-  const [selectedName, setSelectedName] = useState<string | null>(null);
+  const [open, setOpen]                   = useState(false);
+  const [query, setQuery]                 = useState("");
+  const [selectedName, setSelectedName]   = useState<string | null>(null);
   const panelRef  = useRef<HTMLDivElement>(null);
   const queryRef  = useRef<HTMLInputElement>(null);
 
@@ -38,56 +32,35 @@ export function DeckPicker({ label, value, onChange, accentColor }: DeckPickerPr
     ? { ring: "focus:border-amber-500", btn: "bg-amber-500 hover:bg-amber-400 text-gray-950", dot: "bg-amber-500" }
     : { ring: "focus:border-sky-500",   btn: "bg-sky-500   hover:bg-sky-400   text-gray-950", dot: "bg-sky-500"   };
 
-  // ── Search ──────────────────────────────────────────────────────────────────
-  const doSearch = useCallback(async (q: string) => {
-    setLoading(true);
-    try {
-      const params = new URLSearchParams({ sort_by: "views", limit: "20" });
-      if (q.trim()) params.set("q", q.trim());
-      const res  = await fetch(`/api/decks/search?${params}`);
-      const data = (await res.json()) as SearchResponse;
-      setResults(data.results ?? []);
-    } catch {
-      setResults([]);
-    } finally {
-      setLoading(false);
-    }
-  }, []);
+  // Client-side search — instant once the index is loaded (no round-trips)
+  const { results, isLoading } = useDeckSearch(query, "", "views", 20);
 
-  // Load top decks when panel first opens
+  // Focus search input when panel opens
   useEffect(() => {
-    if (open && results === null) {
-      doSearch("");
-      setTimeout(() => queryRef.current?.focus(), 50);
-    }
-  }, [open, results, doSearch]);
+    if (open) setTimeout(() => queryRef.current?.focus(), 50);
+  }, [open]);
 
   // Close on outside click
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (panelRef.current && !panelRef.current.contains(e.target as Node)) {
-        setOpen(false);
-      }
+      if (panelRef.current && !panelRef.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
-  // ── Select a deck ────────────────────────────────────────────────────────────
   function select(deck: DeckIndexEntry) {
     onChange(deck.id, deck.name);
     setSelectedName(deck.name);
     setOpen(false);
+    setQuery(""); // clear filter for next open
   }
 
-  // ── Clear manual input tracking when user pastes a raw ID ───────────────────
   function handleRawChange(v: string) {
     setSelectedName(null);
     onChange(v);
   }
-
-  const displayValue = value;
 
   return (
     <div ref={panelRef} className="flex flex-col gap-1 relative">
@@ -97,7 +70,7 @@ export function DeckPicker({ label, value, onChange, accentColor }: DeckPickerPr
       <div className="flex gap-2">
         <input
           type="text"
-          value={displayValue}
+          value={value}
           onChange={e => handleRawChange(e.target.value)}
           placeholder="ID or https://curiosa.io/decks/..."
           className={`flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white
@@ -129,39 +102,33 @@ export function DeckPicker({ label, value, onChange, accentColor }: DeckPickerPr
         <div className="absolute top-full left-0 right-0 z-50 mt-1 bg-gray-900 border border-gray-700
           rounded-xl shadow-2xl shadow-black/60 overflow-hidden">
 
-          {/* Search bar */}
-          <div className="flex gap-2 p-3 border-b border-gray-800">
+          {/* Filter bar — results update as you type (no Search button needed) */}
+          <div className="flex items-center gap-2 p-3 border-b border-gray-800">
             <input
               ref={queryRef}
               type="text"
               value={query}
               onChange={e => setQuery(e.target.value)}
-              onKeyDown={e => e.key === "Enter" && doSearch(query)}
-              placeholder="Search by name or avatar…"
+              placeholder="Filter by name or avatar…"
               className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white
                 placeholder-gray-500 focus:outline-none focus:border-gray-500 text-sm"
             />
-            <button
-              onClick={() => doSearch(query)}
-              disabled={loading}
-              className={`shrink-0 ${accent.btn} font-semibold px-4 py-2 rounded-lg text-sm
-                transition-colors disabled:opacity-50`}
-            >
-              {loading ? "…" : "Search"}
-            </button>
+            {isLoading && (
+              <span className="text-xs text-gray-500 shrink-0">Loading…</span>
+            )}
           </div>
 
           {/* Results */}
           <div className="max-h-72 overflow-y-auto">
-            {loading && results === null && (
-              <div className="text-center text-gray-500 text-sm py-6">Loading…</div>
+            {isLoading && (
+              <div className="text-center text-gray-500 text-sm py-6">Loading deck index…</div>
             )}
 
-            {!loading && results !== null && results.length === 0 && (
+            {!isLoading && results.length === 0 && (
               <div className="text-center text-gray-500 text-sm py-6">No decks found.</div>
             )}
 
-            {results && results.map(deck => (
+            {results.map(deck => (
               <button
                 key={deck.id}
                 onClick={() => select(deck)}
@@ -201,9 +168,9 @@ export function DeckPicker({ label, value, onChange, accentColor }: DeckPickerPr
             ))}
           </div>
 
-          {results && results.length > 0 && (
+          {results.length > 0 && (
             <div className="px-4 py-2 border-t border-gray-800 text-xs text-gray-600 text-right">
-              Showing top {results.length} by views
+              {query ? `${results.length} matching` : `Top ${results.length} by views`}
             </div>
           )}
         </div>

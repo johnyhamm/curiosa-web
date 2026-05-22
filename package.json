@@ -4,8 +4,10 @@
   "private": true,
   "scripts": {
     "dev": "next dev",
+    "prebuild": "node scripts/build-deck-index.mjs",
     "build": "next build",
-    "start": "next start"
+    "start": "next start",
+    "build:index": "node scripts/build-deck-index.mjs"
   },
   "dependencies": {
     "@clerk/nextjs": "^7.4.0",

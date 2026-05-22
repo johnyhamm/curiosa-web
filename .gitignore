@@ -33,6 +33,9 @@ yarn-error.log*
 # env files (can opt-in for committing if needed)
 .env*
 
+# generated at build time — rebuilt on each deploy
+/public/deck-index.json
+
 # vercel
 .vercel
 
