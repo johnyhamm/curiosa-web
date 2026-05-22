@@ -7,7 +7,8 @@ const ELEMENTS = ["", "air", "earth", "fire", "water"] as const;
 const TYPES = ["", "Minion", "Magic", "Artifact", "Aura", "Site"] as const;
 const RARITIES = ["", "Common", "Uncommon", "Rare", "Exceptional", "Elite", "Unique"] as const;
 
-function elementColor(el: string): string {
+function elementColor(el: string | null | undefined): string {
+  if (!el) return "text-gray-400";
   switch (el.toLowerCase()) {
     case "air":   return "text-sky-400";
     case "earth": return "text-green-400";
@@ -17,7 +18,8 @@ function elementColor(el: string): string {
   }
 }
 
-function rarityColor(rarity: string): string {
+function rarityColor(rarity: string | null | undefined): string {
+  if (!rarity) return "text-gray-400";
   switch (rarity.toLowerCase()) {
     case "unique":      return "text-amber-300";
     case "elite":       return "text-purple-300";
@@ -32,7 +34,7 @@ function CardCard({ card }: { card: Card }) {
   const g = card.guardian;
   const thresholds = Object.entries(g.thresholds ?? {})
     .filter(([, v]) => v > 0)
-    .map(([k, v]) => `${k[0].toUpperCase()}${v}`)
+    .map(([k, v]) => `${k ? k[0].toUpperCase() : "?"}${v}`)
     .join(" ");
 
   return (
