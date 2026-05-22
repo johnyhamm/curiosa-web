@@ -42,7 +42,7 @@ export function DeckPicker({ label, value, onChange, accentColor }: DeckPickerPr
   const doSearch = useCallback(async (q: string) => {
     setLoading(true);
     try {
-      const params = new URLSearchParams({ sort_by: "likes", limit: "20" });
+      const params = new URLSearchParams({ sort_by: "views", limit: "20" });
       if (q.trim()) params.set("q", q.trim());
       const res  = await fetch(`/api/decks/search?${params}`);
       const data = (await res.json()) as SearchResponse;
@@ -203,7 +203,7 @@ export function DeckPicker({ label, value, onChange, accentColor }: DeckPickerPr
 
           {results && results.length > 0 && (
             <div className="px-4 py-2 border-t border-gray-800 text-xs text-gray-600 text-right">
-              Showing top {results.length} by likes
+              Showing top {results.length} by views
             </div>
           )}
         </div>
