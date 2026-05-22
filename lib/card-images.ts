@@ -1115,6 +1115,6 @@ const NAME_TO_ID: Record<string, string> = {
 export function cardImageUrl(name: string, size = 220): string | null {
   const id = NAME_TO_ID[name.toLowerCase()];
   if (!id) return null;
-  // Use the stable CDN URL directly (avoids an extra redirect, 24h browser cache)
-  return `https://lh3.googleusercontent.com/d/${id}=w${size}`;
+  // Route through our proxy — avoids ORB blocking and Drive rate-limits in the browser.
+  return `/api/card-image?id=${id}&sz=w${size}`;
 }
