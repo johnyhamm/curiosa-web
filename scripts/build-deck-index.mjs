@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 /**
- * Fetches the top ~3 000 public decks from curiosa.io and writes them to
- * public/deck-index.json so the client can load them as a static file.
+ * Fetches ALL public decks from curiosa.io and writes them to
+ * public/deck-index.json so the client can search the full catalogue
+ * instantly without any API round-trips.
  *
  * Run manually:  npm run build:index
  * Run at deploy: automatically invoked by the "prebuild" npm hook.
@@ -30,7 +31,7 @@ const HEADERS = {
   "User-Agent": "curiosa-mcp/1.0 (personal build script)",
 };
 
-const MAX_DECKS  = 3_000;
+const MAX_DECKS  = Infinity; // fetch every available deck
 const PAGE_SIZE  = 100;
 const CONCURRENT = 5;
 
@@ -90,7 +91,7 @@ async function main() {
   }
 
   // 2. Fetch from curiosa.io
-  console.log(`[build-deck-index] Fetching up to ${MAX_DECKS} decks from curiosa.io…`);
+  console.log(`[build-deck-index] Fetching all decks from curiosa.io…`);
   const raw = [];
 
   const first = await fetchPage(null);

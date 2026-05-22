@@ -205,8 +205,9 @@ export default function DecksPage() {
   const [sortBy, setSortBy] = useState<"likes" | "views">("views");
   const [page,   setPage]   = useState(0);
 
-  // Client-side search (instant — no API round-trips)
-  const { results: allResults, total, isLoading } = useDeckSearch(query, avatar, sortBy, 500);
+  // Client-side search (instant — no API round-trips).
+  // Falls back to live API automatically when query has no local matches.
+  const { results: allResults, total, isLoading, isLiveFallback } = useDeckSearch(query, avatar, sortBy, 500);
 
   // Paginate locally
   const pageResults = allResults.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
@@ -335,10 +336,14 @@ export default function DecksPage() {
       {/* Result count */}
       {isLoading ? (
         <p className="text-gray-500 text-sm mb-4">Loading deck index…</p>
+      ) : isLiveFallback ? (
+        <p className="text-gray-500 text-sm mb-4">Searching all decks on curiosa.io…</p>
       ) : (
         <p className="text-gray-500 text-sm mb-4">
-          {total === 0
+          {total === 0 && (query || avatar)
             ? "No decks found."
+            : total === 0
+            ? ""
             : `${total.toLocaleString()} deck${total !== 1 ? "s" : ""}${query || avatar ? " matching" : ""} · showing ${pageResults.length}`}
         </p>
       )}

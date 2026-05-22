@@ -32,8 +32,9 @@ export function DeckPicker({ label, value, onChange, accentColor }: DeckPickerPr
     ? { ring: "focus:border-amber-500", btn: "bg-amber-500 hover:bg-amber-400 text-gray-950", dot: "bg-amber-500" }
     : { ring: "focus:border-sky-500",   btn: "bg-sky-500   hover:bg-sky-400   text-gray-950", dot: "bg-sky-500"   };
 
-  // Client-side search — instant once the index is loaded (no round-trips)
-  const { results, isLoading } = useDeckSearch(query, "", "views", 20);
+  // Client-side search — instant once the index is loaded (no round-trips).
+  // Falls back to live API automatically when the query matches nothing locally.
+  const { results, isLoading, isLiveFallback } = useDeckSearch(query, "", "views", 20);
 
   // Focus search input when panel opens
   useEffect(() => {
@@ -113,8 +114,10 @@ export function DeckPicker({ label, value, onChange, accentColor }: DeckPickerPr
               className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-white
                 placeholder-gray-500 focus:outline-none focus:border-gray-500 text-sm"
             />
-            {isLoading && (
-              <span className="text-xs text-gray-500 shrink-0">Loading…</span>
+            {(isLoading || isLiveFallback) && (
+              <span className="text-xs text-gray-500 shrink-0">
+                {isLiveFallback ? "Searching…" : "Loading…"}
+              </span>
             )}
           </div>
 
@@ -170,7 +173,11 @@ export function DeckPicker({ label, value, onChange, accentColor }: DeckPickerPr
 
           {results.length > 0 && (
             <div className="px-4 py-2 border-t border-gray-800 text-xs text-gray-600 text-right">
-              {query ? `${results.length} matching` : `Top ${results.length} by views`}
+              {isLiveFallback
+                ? "Searching all decks…"
+                : query
+                  ? `${results.length} matching`
+                  : `Top ${results.length} by views`}
             </div>
           )}
         </div>
