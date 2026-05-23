@@ -37,7 +37,7 @@ const clerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 // Renders the Google AdSense script unless the signed-in user has an active
 // Clerk Billing subscription. Replace SUBSCRIBER_PLAN_SLUG with the slug of
 // your plan from the Clerk Dashboard (e.g. "pro", "subscriber", etc.).
-const SUBSCRIBER_PLAN_SLUG = process.env.CLERK_SUBSCRIBER_PLAN_SLUG ?? "subscriber";
+const SUBSCRIBER_PLAN_SLUG = process.env.CLERK_SUBSCRIBER_PLAN_SLUG ?? "monthly";
 
 async function ConditionalAds() {
   if (clerkConfigured) {
