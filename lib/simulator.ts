@@ -856,6 +856,289 @@ export function parseAvatarAbilities(_rulesText: string): AvatarAbility[] {
   return [];
 }
 
+// ─── MinionAbility ────────────────────────────────────────────────────────────
+// Named minion abilities looked up by card name. Parallel to AvatarAbility.
+// Kinds prefixed genesis_ fire when the minion enters play; deathrite_ fire on death.
+
+export type MinionAbility =
+  // ── Genesis (on-enter) ──────────────────────────────────────────────────────
+  /** Genesis: draw N spells. */
+  | { kind: "genesis_draw_spell";       amount: number }
+  /** Genesis: draw N sites. */
+  | { kind: "genesis_draw_site";        amount: number }
+  /** Genesis: gain N life. */
+  | { kind: "genesis_gain_life";        amount: number }
+  /** Genesis: deal N damage to target adjacent enemy unit. */
+  | { kind: "genesis_damage_target";    amount: number }
+  /** Genesis: deal N damage to each nearby enemy unit (within 1 step). */
+  | { kind: "genesis_damage_nearby";    amount: number }
+  /** Genesis: deal N damage to each other unit at the same site. */
+  | { kind: "genesis_damage_same_site"; amount: number }
+  /** Genesis: tap target adjacent enemy. */
+  | { kind: "genesis_tap_target" }
+  /** Genesis: kill (destroy) target adjacent enemy. */
+  | { kind: "genesis_kill_target" }
+  /** Genesis: kill target nearby enemy with a specific subtype (null = any). */
+  | { kind: "genesis_kill_subtype"; subtype: string | null }
+  /** Genesis: strike (deal own attack damage to) each enemy at same site. */
+  | { kind: "genesis_strike_same_site" }
+  /** Genesis: untap one adjacent friendly minion. */
+  | { kind: "genesis_untap_ally" }
+  /** Genesis: grant Ward to one allied minion (prefer wounded). */
+  | { kind: "genesis_ward_ally" }
+  /** Genesis: discard a spell then draw a spell (net-neutral on hand size). */
+  | { kind: "genesis_draw_discard" }
+  /** Genesis: summon N tokens on this or adjacent free friendly sites. */
+  | { kind: "genesis_summon_token"; attack: number; defense: number; tokenName: string; count: number }
+  /** Genesis: search for another copy of this minion and summon it for free. */
+  | { kind: "genesis_search_copy" }
+  // ── Deathrite (on-death) ─────────────────────────────────────────────────────
+  /** Deathrite: deal N damage to each unit at the same site (post-removal). */
+  | { kind: "deathrite_damage_same_site"; amount: number }
+  /** Deathrite: strike (deal attack power to) each nearby enemy. */
+  | { kind: "deathrite_strike_nearby" }
+  /** Deathrite: strike target nearby enemy (pick weakest). */
+  | { kind: "deathrite_strike_target" }
+  /** Deathrite: owner's opponent loses N life. */
+  | { kind: "deathrite_opponent_loses_life"; amount: number }
+  /** Deathrite: summon a token on the death site (or nearest free). */
+  | { kind: "deathrite_summon_token"; attack: number; defense: number; tokenName: string }
+  /** Deathrite: summon tokens on adjacent friendly sites. */
+  | { kind: "deathrite_summon_tokens_nearby"; attack: number; defense: number; tokenName: string }
+  /** Deathrite: return this card to owner's hand (optionally requires controlling another Mortal). */
+  | { kind: "deathrite_return_to_hand"; requiresMortal: boolean }
+  /** Deathrite: owner heals N life. */
+  | { kind: "deathrite_heal"; amount: number }
+  /** Deathrite: draw a site. */
+  | { kind: "deathrite_draw_site" }
+  /** Deathrite: ward an allied minion. */
+  | { kind: "deathrite_ward_ally" }
+  /** Deathrite: players lose 1 life per nearby site they control. */
+  | { kind: "deathrite_life_per_site" };
+
+/**
+ * Returns the named ability (Genesis / Deathrite) for a given minion card name.
+ * Add new cases here as cards are modelled; unknown names return [].
+ *
+ * Cards currently modelled (Genesis):
+ *   Apprentice Wizard · Grandmaster Wizard · Land Surveyor · Grain Sparrow
+ *   Helpful Hob · Novice Necromancer · Master Necromancer · Sir Morien
+ *   Vile Imp · Static Servant · Flayer · Screamer · Sir Mordred
+ *   Mage Slayer · Monster Hunter · Giant Killer · Angry Mob · Demon Hunter
+ *   Arjaro Exorcist · Town Priest · Guardian Angel · Virgin in Prayer
+ *   Kissers of Wounds · Sisters of Avalon · Wraetannis Titan · Archangel Gabriel
+ *   Brother Knight · One-shot Wizard
+ * Cards currently modelled (Deathrite):
+ *   Sacred Scarabs · Sir Lamorak · The Green Knight · Maiden, Mother, Crone
+ *   Muddy Pigs · Noisome Twosome · Crown Prince · Bladderblimp
+ *   Sir Tom Thumb · The Ninth Legion · Kettletop Leprechaun · Martyrs of Tomorrow
+ *   Midland Army · Sir Mordred
+ */
+export function lookupMinionAbilities(name: string): MinionAbility[] {
+  switch (name) {
+
+    // ── Genesis: card-draw ────────────────────────────────────────────────────
+
+    // "Genesis → Draw a spell."
+    case "Apprentice Wizard":
+      return [{ kind: "genesis_draw_spell", amount: 1 }];
+
+    // "Genesis → Draw three spells."
+    case "Grandmaster Wizard":
+      return [{ kind: "genesis_draw_spell", amount: 3 }];
+
+    // "Genesis → Draw a spell. Discard a spell." (net-neutral but filters hand)
+    case "Sisters of Avalon":
+      return [{ kind: "genesis_draw_discard" }];
+
+    // "Genesis → Draw a site."
+    case "Land Surveyor":
+      return [{ kind: "genesis_draw_site", amount: 1 }];
+
+    // "Genesis → Shoot a projectile that deals 1 damage." (target adjacent enemy)
+    case "One-shot Wizard":
+      return [{ kind: "genesis_damage_target", amount: 1 }];
+
+    // ── Genesis: life gain ─────────────────────────────────────────────────────
+
+    // "Genesis → Gain 2 life."
+    case "Grain Sparrow":
+      return [{ kind: "genesis_gain_life", amount: 2 }];
+
+    // "Genesis → Ward a wounded minion nearby, or you heal 2."
+    // Simplified as: ward the best ally if wounded; otherwise heal 2.
+    case "Kissers of Wounds":
+      return [{ kind: "genesis_gain_life", amount: 2 }];  // fallback; ward path is bonus
+
+    // "Genesis → Heal 3."  (Maiden also has Deathrite → Opponent loses 3)
+    case "Maiden, Mother, Crone":
+      return [
+        { kind: "genesis_gain_life", amount: 3 },
+        { kind: "deathrite_opponent_loses_life", amount: 3 },
+      ];
+
+    // ── Genesis: utility / control ─────────────────────────────────────────────
+
+    // "Genesis → Untap an adjacent ally."
+    case "Helpful Hob":
+      return [{ kind: "genesis_untap_ally" }];
+
+    // "Genesis → Tap target adjacent enemy."  (Screamer also makes it step away)
+    case "Screamer":
+      return [{ kind: "genesis_tap_target" }];
+
+    // "Genesis → Ward an allied minion."
+    case "Virgin in Prayer":
+      return [{ kind: "genesis_ward_ally" }];
+
+    // "Genesis → Ward this site." (no direct minion benefit — skip)
+    // case "Nightwatchmen": (site-level effect, not modelled here)
+
+    // "Genesis → Give another nearby allied minion Stealth."
+    // Modelled conservatively as a ward (closest analogue in benefit)
+    // Actually skip — Stealth grant needs a separate ability kind.
+    // case "Swindler Troupe": (skip for now)
+
+    // ── Genesis: damage ────────────────────────────────────────────────────────
+
+    // "Genesis → May deal 2 damage to target adjacent unit."
+    case "Vile Imp":
+      return [{ kind: "genesis_damage_target", amount: 2 }];
+
+    // "Genesis → Each other unit here takes 1 damage."
+    case "Static Servant":
+      return [{ kind: "genesis_damage_same_site", amount: 1 }];
+
+    // "Genesis → Deal 1 damage to each other nearby unit."
+    case "Flayer":
+      return [{ kind: "genesis_damage_nearby", amount: 1 }];
+
+    // "Genesis → Strike each enemy here." (uses own attack value)
+    case "Wraetannis Titan":
+      return [{ kind: "genesis_strike_same_site" }];
+
+    // ── Genesis: removal ───────────────────────────────────────────────────────
+
+    // "Genesis & Deathrite → Kill target adjacent enemy minion."
+    case "Sir Mordred":
+      return [
+        { kind: "genesis_kill_target" },
+        { kind: "deathrite_strike_target" },  // approximation of "kill on death"
+      ];
+
+    // "Genesis → Kill target Spellcaster minion nearby."
+    case "Mage Slayer":
+      return [{ kind: "genesis_kill_subtype", subtype: "spellcaster" }];
+
+    // "Genesis → Kill a nearby Monster."
+    case "Monster Hunter":
+      return [{ kind: "genesis_kill_subtype", subtype: "monster" }];
+
+    // "Genesis → Kill target nearby Giant."
+    case "Giant Killer":
+      return [{ kind: "genesis_kill_subtype", subtype: "giant" }];
+
+    // "Genesis → Kill target adjacent Demon."
+    case "Demon Hunter":
+      return [{ kind: "genesis_kill_subtype", subtype: "demon" }];
+
+    // "Genesis → Kill target adjacent Unique or Elite." (model as kill best adjacent)
+    case "Angry Mob":
+      return [{ kind: "genesis_kill_target" }];
+
+    // "Genesis → Banish target adjacent Demon, Spirit, or aura." (model as kill adjacent demon/spirit)
+    case "Arjaro Exorcist":
+      return [{ kind: "genesis_kill_subtype", subtype: "demon" }];
+
+    // "Genesis → Return target adjacent Evil minion to its owner's hand."
+    // Model as: remove (kill) target adjacent enemy (approximation)
+    case "Town Priest":
+      return [{ kind: "genesis_kill_target" }];
+
+    // ── Genesis: token summoning ────────────────────────────────────────────────
+
+    // "Genesis → Summon a Skeleton token here."
+    case "Novice Necromancer":
+      return [{ kind: "genesis_summon_token", attack: 1, defense: 1, tokenName: "Skeleton", count: 1 }];
+
+    // "Genesis → Summon a Skeleton token to each other adjacent site."
+    // Simplified: summon one Skeleton token (full multi-site would require complex routing)
+    case "Master Necromancer":
+      return [{ kind: "genesis_summon_token", attack: 1, defense: 1, tokenName: "Skeleton", count: 1 }];
+
+    // "Genesis → Summon two Foot Soldier tokens here."
+    case "Sir Morien":
+      return [{ kind: "genesis_summon_token", attack: 1, defense: 1, tokenName: "Foot Soldier", count: 2 }];
+
+    // ── Genesis: search ─────────────────────────────────────────────────────────
+
+    // "Genesis → You may search your spellbook or hand for another Brother Knight and summon it here."
+    case "Brother Knight":
+      return [{ kind: "genesis_search_copy" }];
+
+    // ── Genesis: targeting (Ward) ──────────────────────────────────────────────
+
+    // "Genesis → Fly to a weaker allied minion to Ward it." (simplified as ward best ally)
+    case "Guardian Angel":
+      return [{ kind: "genesis_ward_ally" }];
+
+    // "Genesis → Choose another allied minion. They draw a spell."
+    // Model as: draw a spell for the owner (approximation)
+    case "Archangel Gabriel":
+      return [{ kind: "genesis_draw_spell", amount: 1 }];
+
+    // ── Deathrite ──────────────────────────────────────────────────────────────
+
+    // "Deathrite → Deal 3 damage to each unit here."
+    case "Sacred Scarabs":
+      return [{ kind: "deathrite_damage_same_site", amount: 3 }];
+
+    // "Deathrite → Strike each nearby enemy."
+    case "Sir Lamorak":
+      return [{ kind: "deathrite_strike_nearby" }];
+
+    // "Deathrite → Strike target nearby enemy."
+    case "The Green Knight":
+      return [{ kind: "deathrite_strike_target" }];
+
+    // "Deathrite → You heal 3."
+    case "Muddy Pigs":
+      return [{ kind: "deathrite_heal", amount: 3 }];
+
+    // "Deathrite → Summon a Skeleton token here."
+    case "Noisome Twosome":
+      return [{ kind: "deathrite_summon_token", attack: 1, defense: 1, tokenName: "Skeleton" }];
+
+    // "Deathrite → Summon a Foot Soldier token to each adjacent allied site."
+    case "Midland Army":
+      return [{ kind: "deathrite_summon_tokens_nearby", attack: 1, defense: 1, tokenName: "Foot Soldier" }];
+
+    // "Deathrite → If you control another Mortal, return Crown Prince to its owner's hand."
+    case "Crown Prince":
+      return [{ kind: "deathrite_return_to_hand", requiresMortal: true }];
+
+    // "Deathrite → Return to hand."
+    case "Sir Tom Thumb":
+    case "The Ninth Legion":
+      return [{ kind: "deathrite_return_to_hand", requiresMortal: false }];
+
+    // "Deathrite → Players lose 1 life for each nearby site they control."
+    case "Bladderblimp":
+      return [{ kind: "deathrite_life_per_site" }];
+
+    // "Deathrite → Draw a site."
+    case "Kettletop Leprechaun":
+      return [{ kind: "deathrite_draw_site" }];
+
+    // "Deathrite → Ward an allied minion."
+    case "Martyrs of Tomorrow":
+      return [{ kind: "deathrite_ward_ally" }];
+
+    default:
+      return [];
+  }
+}
+
 // ─── Subtype parser ───────────────────────────────────────────────────────────
 
 export function parseSubtypes(name: string, rulesText: string): string[] {
@@ -1410,6 +1693,140 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         emit(`  → ${owner.avatarCard.name} gains ${ab.amount} mana (death trigger)`);
       }
     }
+
+    // ── Named minion Deathrite abilities ─────────────────────────────────────
+    // Note: bm is already removed from `minions` above; bm.pos is the death site.
+    if (!hasUndying) { // Undying units return to hand, not cemetery — no Deathrite
+      for (const dab of lookupMinionAbilities(bm.card.name)) {
+        const src = bm.card.name;
+
+        if (dab.kind === "deathrite_damage_same_site") {
+          const targets = minions.filter(m => posEq(m.pos, bm.pos));
+          for (const t of [...targets]) {
+            t.tempDamage += dab.amount;
+            if (effDef(t) <= 0) removeMinion(t);
+          }
+          if (targets.length > 0)
+            emit(`  → ${src} Deathrite: deals ${dab.amount} dmg to ${targets.length} unit(s) here`);
+
+        } else if (dab.kind === "deathrite_strike_nearby") {
+          const atk = bm.card.attack;
+          const targets = cardinalNeighbors(bm.pos)
+            .flatMap(nb => minions.filter(m => m.owner !== bm.owner && posEq(m.pos, nb) && !m.stealthy));
+          for (const t of [...targets]) {
+            t.tempDamage += atk;
+            if (effDef(t) <= 0) removeMinion(t);
+          }
+          if (targets.length > 0)
+            emit(`  → ${src} Deathrite: strikes ${targets.length} nearby enemy/enemies (${atk} dmg each)`);
+
+        } else if (dab.kind === "deathrite_strike_target") {
+          const atk = bm.card.attack;
+          const targets = cardinalNeighbors(bm.pos)
+            .flatMap(nb => minions.filter(m => m.owner !== bm.owner && posEq(m.pos, nb) && !m.stealthy));
+          if (targets.length > 0) {
+            const t = [...targets].sort((a, b) => minionValue(a.card) - minionValue(b.card))[0];
+            t.tempDamage += atk;
+            emit(`  → ${src} Deathrite: strikes ${t.card.name} for ${atk}`);
+            if (effDef(t) <= 0) removeMinion(t);
+          }
+
+        } else if (dab.kind === "deathrite_opponent_loses_life") {
+          damageAvatar(opp, dab.amount, src);
+          emit(`  → ${src} Deathrite: opponent loses ${dab.amount} life`);
+
+        } else if (dab.kind === "deathrite_heal") {
+          owner.avatarLife += dab.amount;
+          emit(`  → ${src} Deathrite: owner heals ${dab.amount} (→${owner.avatarLife})`);
+
+        } else if (dab.kind === "deathrite_draw_site") {
+          if (owner.atlasDeck.length > 0) {
+            owner.atlasHand.push(owner.atlasDeck.shift()!);
+            emit(`  → ${src} Deathrite: draws a site`);
+          }
+
+        } else if (dab.kind === "deathrite_ward_ally") {
+          const friends = friendlyMinions(bm.owner).filter(m => !bHasKw(m, "ward"));
+          if (friends.length > 0) {
+            const t = [...friends].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+            t.card = { ...t.card, keywords: [...t.card.keywords, "ward"] };
+            emit(`  → ${src} Deathrite: wards ${t.card.name}`);
+          }
+
+        } else if (dab.kind === "deathrite_summon_token") {
+          const free = freeSiteSquares(grid, minions, bm.owner);
+          if (free.length > 0) {
+            const tPos = free.sort((a, b) => cardinalDist(a, bm.pos) - cardinalDist(b, bm.pos))[0];
+            const tokenCard: SimCard = {
+              name: dab.tokenName, type: "Minion",
+              attack: dab.attack, defense: dab.defense, life: 0,
+              waterT: 0, earthT: 0, fireT: 0, airT: 0,
+              elements: [], keywords: [], subtypes: ["undead"], rulesText: "",
+            };
+            minions.push({
+              card: tokenCard, pos: tPos, owner: bm.owner,
+              tapped: false, sick: true, tempDamage: 0, stealthy: false,
+              skipNextUntap: false, temporary: false,
+              retaliatedThisCombatStep: false, burrowed: false, submerged: false, oversizedSecondPos: null,
+            });
+            owner.minionsDeployed++;
+            emit(`  → ${src} Deathrite: summons ${dab.tokenName} token`);
+          }
+
+        } else if (dab.kind === "deathrite_summon_tokens_nearby") {
+          // Summon a token on each adjacent free friendly site
+          const adjFriendly = cardinalNeighbors(bm.pos).filter(nb => {
+            const sq = getSquare(grid, nb);
+            return sq.owner === bm.owner && !minions.some(m => posEq(m.pos, nb));
+          });
+          let tokenCount = 0;
+          for (const tPos of adjFriendly) {
+            const tokenCard: SimCard = {
+              name: dab.tokenName, type: "Minion",
+              attack: dab.attack, defense: dab.defense, life: 0,
+              waterT: 0, earthT: 0, fireT: 0, airT: 0,
+              elements: [], keywords: [], subtypes: ["mortal"], rulesText: "",
+            };
+            minions.push({
+              card: tokenCard, pos: tPos, owner: bm.owner,
+              tapped: false, sick: true, tempDamage: 0, stealthy: false,
+              skipNextUntap: false, temporary: false,
+              retaliatedThisCombatStep: false, burrowed: false, submerged: false, oversizedSecondPos: null,
+            });
+            owner.minionsDeployed++;
+            tokenCount++;
+          }
+          if (tokenCount > 0)
+            emit(`  → ${src} Deathrite: summons ${tokenCount} ${dab.tokenName} token(s) to adjacent sites`);
+
+        } else if (dab.kind === "deathrite_return_to_hand") {
+          const canReturn = !dab.requiresMortal ||
+            friendlyMinions(bm.owner).some(m => (m.card.subtypes ?? []).includes("mortal"));
+          if (canReturn) {
+            // Re-add to hand (already in cemetery — remove it, add to hand)
+            const cemIdx = owner.deadMinions.indexOf(bm.card);
+            if (cemIdx !== -1) owner.deadMinions.splice(cemIdx, 1);
+            owner.spellHand.push(bm.card);
+            emit(`  → ${src} Deathrite: returns to hand`);
+          }
+
+        } else if (dab.kind === "deathrite_life_per_site") {
+          // Each player loses 1 life per nearby site (cardinal neighbors of death site) they control
+          const nearbySquares = cardinalNeighbors(bm.pos);
+          const ownerLoss  = nearbySquares.filter(nb => getSquare(grid, nb).owner === bm.owner).length;
+          const oppLoss    = nearbySquares.filter(nb => getSquare(grid, nb).owner !== bm.owner && getSquare(grid, nb).owner !== null).length;
+          if (ownerLoss > 0) {
+            damageAvatar(owner, ownerLoss, src);
+            emit(`  → ${src} Deathrite: owner loses ${ownerLoss} life`);
+          }
+          if (oppLoss > 0) {
+            damageAvatar(opp, oppLoss, src);
+            emit(`  → ${src} Deathrite: opponent loses ${oppLoss} life`);
+          }
+        }
+      }
+    }
+    // ─────────────────────────────────────────────────────────────────────────
   }
 
   /** Can attacker see / legally target a defender? */
@@ -2529,6 +2946,195 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
             emit(`T${turn} [${active.id}] Savior wards ${bm.card.name}`);
           }
         }
+
+        // ── Named minion Genesis abilities ────────────────────────────────────
+        for (const ab of lookupMinionAbilities(bm.card.name)) {
+          const src = bm.card.name;
+
+          if (ab.kind === "genesis_draw_spell") {
+            for (let i = 0; i < ab.amount; i++) drawOne(active);
+            emit(`T${turn} [${active.id}] ${src} Genesis: draws ${ab.amount} spell(s)`);
+
+          } else if (ab.kind === "genesis_draw_site") {
+            for (let i = 0; i < ab.amount; i++) {
+              if (active.atlasDeck.length > 0) active.atlasHand.push(active.atlasDeck.shift()!);
+            }
+            emit(`T${turn} [${active.id}] ${src} Genesis: draws ${ab.amount} site(s)`);
+
+          } else if (ab.kind === "genesis_gain_life") {
+            active.avatarLife += ab.amount;
+            emit(`T${turn} [${active.id}] ${src} Genesis: gains ${ab.amount} life (→${active.avatarLife})`);
+
+          } else if (ab.kind === "genesis_draw_discard") {
+            if (active.spellHand.length > 0) {
+              // Discard lowest-value spell, then draw
+              const discard = [...active.spellHand].sort((a, b) => minionValue(a) - minionValue(b))[0];
+              active.spellHand = remove(active.spellHand, discard);
+              active.deadSpells.push(discard);
+              drawOne(active);
+              emit(`T${turn} [${active.id}] ${src} Genesis: discards ${discard.name}, draws a spell`);
+            }
+
+          } else if (ab.kind === "genesis_damage_target") {
+            // Deal to nearest visible adjacent enemy
+            const adjEnemies = cardinalNeighbors(bm.pos)
+              .flatMap(nb => minions.filter(m => m.owner !== active.id && posEq(m.pos, nb) && !m.stealthy));
+            if (adjEnemies.length > 0) {
+              const target = [...adjEnemies].sort((a, b) => minionValue(a.card) - minionValue(b.card))[0];
+              target.tempDamage += ab.amount;
+              emit(`T${turn} [${active.id}] ${src} Genesis: deals ${ab.amount} dmg to ${target.card.name}`);
+              if (effDef(target) <= 0) removeMinion(target);
+            } else {
+              // No adjacent target — hit enemy avatar instead
+              damageAvatar(opp, ab.amount, src);
+            }
+
+          } else if (ab.kind === "genesis_damage_nearby") {
+            // Nearby = cardinal neighbors
+            const targets = cardinalNeighbors(bm.pos)
+              .flatMap(nb => minions.filter(m => m.owner !== active.id && posEq(m.pos, nb)));
+            for (const t of [...targets]) {
+              t.tempDamage += ab.amount;
+              if (effDef(t) <= 0) removeMinion(t);
+            }
+            if (targets.length > 0)
+              emit(`T${turn} [${active.id}] ${src} Genesis: deals ${ab.amount} dmg to ${targets.length} nearby enemies`);
+
+          } else if (ab.kind === "genesis_damage_same_site") {
+            // All other units at the exact same position
+            const targets = minions.filter(m => m !== bm && posEq(m.pos, bm.pos));
+            for (const t of [...targets]) {
+              t.tempDamage += ab.amount;
+              if (effDef(t) <= 0) removeMinion(t);
+            }
+            if (targets.length > 0)
+              emit(`T${turn} [${active.id}] ${src} Genesis: deals ${ab.amount} dmg to ${targets.length} unit(s) here`);
+
+          } else if (ab.kind === "genesis_strike_same_site") {
+            // Strike (use own attack) each enemy at same site
+            const targets = minions.filter(m => m.owner !== active.id && posEq(m.pos, bm.pos));
+            const atk = effAtk(bm);
+            for (const t of [...targets]) {
+              t.tempDamage += atk;
+              if (effDef(t) <= 0) removeMinion(t);
+            }
+            if (targets.length > 0)
+              emit(`T${turn} [${active.id}] ${src} Genesis: strikes ${targets.length} enemy/enemies here (${atk} dmg each)`);
+
+          } else if (ab.kind === "genesis_tap_target") {
+            const adjEnemies2 = cardinalNeighbors(bm.pos)
+              .flatMap(nb => minions.filter(m => m.owner !== active.id && posEq(m.pos, nb) && !m.stealthy && !m.tapped));
+            if (adjEnemies2.length > 0) {
+              const target = [...adjEnemies2].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+              target.tapped = true;
+              emit(`T${turn} [${active.id}] ${src} Genesis: taps ${target.card.name}`);
+            }
+
+          } else if (ab.kind === "genesis_kill_target") {
+            const adjEnemies3 = cardinalNeighbors(bm.pos)
+              .flatMap(nb => minions.filter(m => m.owner !== active.id && posEq(m.pos, nb) && !m.stealthy));
+            if (adjEnemies3.length > 0) {
+              // Prefer killing Ward minions first (pop Ward), else kill highest value
+              const warded = adjEnemies3.filter(m => bHasKw(m, "ward"));
+              if (warded.length > 0) {
+                // Pop Ward — strip it but don't kill
+                const t = warded[0];
+                t.card = { ...t.card, keywords: t.card.keywords.filter(k => k !== "ward") };
+                emit(`T${turn} [${active.id}] ${src} Genesis: pops Ward on ${t.card.name}`);
+              } else {
+                const target = [...adjEnemies3].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+                emit(`T${turn} [${active.id}] ${src} Genesis: kills ${target.card.name}`);
+                removeMinion(target);
+              }
+            }
+
+          } else if (ab.kind === "genesis_kill_subtype") {
+            const sub = ab.subtype?.toLowerCase() ?? null;
+            const candidates = cardinalNeighbors(bm.pos)
+              .flatMap(nb => minions.filter(m => {
+                if (m.owner === active.id) return false;
+                if (!posEq(m.pos, nb)) return false;
+                if (m.stealthy) return false;
+                if (sub === null) return true;
+                if (sub === "spellcaster") return /spellcaster/i.test(m.card.rulesText ?? "");
+                return (m.card.subtypes ?? []).includes(sub);
+              }));
+            if (candidates.length > 0) {
+              const target = [...candidates].sort((a, b) => minionValue(b.card) - minionValue(a.card))[0];
+              if (bHasKw(target, "ward")) {
+                target.card = { ...target.card, keywords: target.card.keywords.filter(k => k !== "ward") };
+                emit(`T${turn} [${active.id}] ${src} Genesis: pops Ward on ${target.card.name}`);
+              } else {
+                emit(`T${turn} [${active.id}] ${src} Genesis: kills ${target.card.name} (${sub ?? "any"})`);
+                removeMinion(target);
+              }
+            }
+
+          } else if (ab.kind === "genesis_untap_ally") {
+            const adjFriends = cardinalNeighbors(bm.pos)
+              .flatMap(nb => minions.filter(m => m.owner === active.id && posEq(m.pos, nb) && m.tapped));
+            if (adjFriends.length > 0) {
+              const t = adjFriends[0];
+              t.tapped = false;
+              emit(`T${turn} [${active.id}] ${src} Genesis: untaps ${t.card.name}`);
+            }
+
+          } else if (ab.kind === "genesis_ward_ally") {
+            const friends = friendlyMinions(active.id).filter(m => m !== bm && !bHasKw(m, "ward"));
+            if (friends.length > 0) {
+              // Prefer most damaged ally (wounded), else highest value
+              const t = [...friends].sort((a, b) => b.tempDamage - a.tempDamage || minionValue(b.card) - minionValue(a.card))[0];
+              t.card = { ...t.card, keywords: [...t.card.keywords, "ward"] };
+              emit(`T${turn} [${active.id}] ${src} Genesis: wards ${t.card.name}`);
+            }
+
+          } else if (ab.kind === "genesis_summon_token") {
+            // Summon up to `count` tokens on free friendly sites nearest to bm.pos
+            const freeSites = freeSiteSquares(grid, minions, active.id)
+              .sort((a, b) => cardinalDist(a, bm.pos) - cardinalDist(b, bm.pos));
+            const toSummon = Math.min(ab.count, freeSites.length);
+            for (let i = 0; i < toSummon; i++) {
+              const tPos = freeSites[i];
+              const tokenCard: SimCard = {
+                name: ab.tokenName, type: "Minion",
+                attack: ab.attack, defense: ab.defense, life: 0,
+                waterT: 0, earthT: 0, fireT: 0, airT: 0,
+                elements: [], keywords: [], subtypes: ["undead"], rulesText: "",
+              };
+              minions.push({
+                card: tokenCard, pos: tPos, owner: active.id,
+                tapped: false, sick: true, tempDamage: 0, stealthy: false,
+                skipNextUntap: false, temporary: false,
+                retaliatedThisCombatStep: false, burrowed: false, submerged: false, oversizedSecondPos: null,
+              });
+              active.minionsDeployed++;
+            }
+            if (toSummon > 0)
+              emit(`T${turn} [${active.id}] ${src} Genesis: summons ${toSummon} ${ab.tokenName} token(s)`);
+
+          } else if (ab.kind === "genesis_search_copy") {
+            // Search spellDeck for another copy, summon for free on a free site
+            const copyIdx = active.spellDeck.findIndex(c => c.name === bm.card.name);
+            if (copyIdx !== -1) {
+              const copy = active.spellDeck.splice(copyIdx, 1)[0];
+              const freeSites2 = freeSiteSquares(grid, minions, active.id);
+              if (freeSites2.length > 0) {
+                const tPos = chooseMinionPosition(freeSites2, opp.avatarPos);
+                const copyBm: BoardMinion = {
+                  card: copy, pos: tPos, owner: active.id,
+                  tapped: false, sick: !hasKw(copy, "charge"), tempDamage: 0, stealthy: hasKw(copy, "stealth"),
+                  skipNextUntap: false, temporary: false,
+                  retaliatedThisCombatStep: false, burrowed: false, submerged: false, oversizedSecondPos: null,
+                };
+                minions.push(copyBm);
+                active.minionsDeployed++;
+                emit(`T${turn} [${active.id}] ${src} Genesis: searches and summons another ${copy.name}`);
+              }
+            }
+          }
+        }
+        // ─────────────────────────────────────────────────────────────────────
+
         keepTrying = true;
 
       } else if (card.type === "Artifact") {
