@@ -42,7 +42,7 @@ function CardCard({ card }: { card: Card }) {
     .join(" ");
 
   return (
-    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "minmax(0, 1fr) 200px" }}>
+    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "minmax(0, 1fr) 280px" }}>
 
       {/* ── Card details ── */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-2 hover:border-gray-700 transition-colors">
@@ -99,12 +99,13 @@ function CardCard({ card }: { card: Card }) {
       {imgUrl && (
         <div className="w-full">
           {isSite ? (
-            // Site cards are landscape — the image column is fixed at 200px.
-            // Standard card ratio 63:88 → portrait display = 200×280px.
-            // Set CSS width=280, height=200, rotate 90°: visual becomes 200×280.
+            // Site cards are landscape — column is 280px wide.
+            // Source images are portrait (63:88). To display landscape at 280×200:
+            //   CSS element must also be portrait (200×280) so objectFit:cover
+            //   fills without clipping, then rotate(90°) swaps it to 280×200 visually.
             <div
               className="relative overflow-hidden rounded-lg shadow-lg shadow-black/50 w-full"
-              style={{ height: "280px" }}
+              style={{ height: "200px" }}
             >
               <img
                 src={imgUrl}
@@ -113,12 +114,12 @@ function CardCard({ card }: { card: Card }) {
                   position: "absolute",
                   top: "50%",
                   left: "50%",
-                  width: "280px",
-                  height: "200px",
+                  width: "200px",
+                  height: "280px",
                   maxWidth: "none",
                   objectFit: "cover",
                   objectPosition: "center",
-                  transform: "translate(-140px, -100px) rotate(90deg)",
+                  transform: "translate(-100px, -140px) rotate(90deg)",
                 }}
                 loading="lazy"
                 onError={(e) => { (e.currentTarget.parentElement as HTMLElement).style.display = "none"; }}
