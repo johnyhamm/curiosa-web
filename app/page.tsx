@@ -1,4 +1,10 @@
 import Link from "next/link";
+import { Suspense } from "react";
+import { CardOfTheDay } from "@/app/components/CardOfTheDay";
+
+// Regenerate the home page at most every hour so the card-of-the-day
+// stays current without rebuilding on every request.
+export const revalidate = 3600;
 
 const features = [
   {
@@ -57,6 +63,17 @@ export default function Home() {
           . Search cards, explore decks, and simulate matches.
         </p>
       </div>
+
+      {/* Card of the Day */}
+      <Suspense
+        fallback={
+          <div className="rounded-2xl border border-amber-700/20 bg-gray-900 h-64 animate-pulse mb-12" />
+        }
+      >
+        <div className="mb-12">
+          <CardOfTheDay />
+        </div>
+      </Suspense>
 
       {/* Feature cards */}
       <div className="grid sm:grid-cols-3 gap-6">
