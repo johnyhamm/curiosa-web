@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Cinzel_Decorative } from "next/font/google";
 import Link from "next/link";
 import { ClerkProvider } from "@clerk/nextjs";
+import { currentUser } from "@clerk/nextjs/server";
 import { NavAuth } from "@/components/NavAuth";
 import { FeedbackProvider } from "@/app/components/FeedbackProvider";
 import { FeedbackNavButton } from "@/app/components/FeedbackNavButton";
@@ -33,6 +34,23 @@ export const metadata: Metadata = {
 // simply hidden until NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is added to the environment.
 const clerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
+// Renders the Google AdSense script unless the signed-in user is a subscriber.
+// Set publicMetadata.isSubscriber = true on a Clerk user to suppress ads for them.
+async function ConditionalAds() {
+  if (clerkConfigured) {
+    const user = await currentUser();
+    const meta = user?.publicMetadata as { isSubscriber?: boolean } | undefined;
+    if (meta?.isSubscriber) return null;
+  }
+  return (
+    <script
+      async
+      src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9007813398645252"
+      crossOrigin="anonymous"
+    />
+  );
+}
+
 function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <html
@@ -42,12 +60,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
       <head>
         {/* Impact affiliate site verification */}
         <meta name="impact-site-verification" content="a1f044c4-92d5-4a24-a3a3-791a56991846" />
-        {/* Google AdSense */}
-        <script
-          async
-          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9007813398645252"
-          crossOrigin="anonymous"
-        />
+        {/* Google AdSense — hidden for subscribers */}
+        <ConditionalAds />
       </head>
       <body className="min-h-full flex flex-col bg-gray-950 text-white">
       <FeedbackProvider>
