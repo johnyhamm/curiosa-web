@@ -42,6 +42,12 @@ function AppShell({ children }: { children: React.ReactNode }) {
       <head>
         {/* Impact affiliate site verification */}
         <meta name="impact-site-verification" content="a1f044c4-92d5-4a24-a3a3-791a56991846" />
+        {/* Google AdSense */}
+        <script
+          async
+          src="https://pagead2.googlesyndication.com/pagead/js/adsbygoogle.js?client=ca-pub-9007813398645252"
+          crossOrigin="anonymous"
+        />
       </head>
       <body className="min-h-full flex flex-col bg-gray-950 text-white">
       <FeedbackProvider>
