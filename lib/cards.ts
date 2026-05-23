@@ -142,7 +142,18 @@ export async function loadCards(): Promise<Card[]> {
     }
   }
 
-  // 3. Time to check the API — use a conditional GET if we have an ETag
+  // 3. Bundled file baked at build time — no network call needed on Vercel cold starts
+  try {
+    const raw = readFileSync(join(process.cwd(), "public", "cards-data.json"), "utf8");
+    const cards = JSON.parse(raw) as Card[];
+    if (cards.length > 0) {
+      cardCache = cards;
+      console.error(`[curiosa-web] Loaded ${cards.length} cards from bundled file`);
+      return cardCache;
+    }
+  } catch { /* file not present — fall through to API */ }
+
+  // 4. Time to check the API — use a conditional GET if we have an ETag
   console.error("[curiosa-web] Checking API for updates...");
   const headers: Record<string, string> = {};
   if (disk?.etag) headers["If-None-Match"] = disk.etag;

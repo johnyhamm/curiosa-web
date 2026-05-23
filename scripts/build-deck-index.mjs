@@ -144,3 +144,53 @@ main().catch(err => {
   } catch { /* ignore */ }
   process.exit(0);
 });
+
+// ─── Card database ────────────────────────────────────────────────────────────
+// Bakes the full card list into public/cards-data.json so server-side code
+// (API routes, server components) can read it without hitting sorcerytcg.com
+// on every cold start.
+
+const CARDS_API   = "https://api.sorcerytcg.com/api/cards";
+const CARDS_CACHE = join(
+  process.env.HOME ?? process.env.USERPROFILE ?? ".",
+  ".cache", "curiosa-mcp", "cards.json"
+);
+const CARDS_OUT = join(PUBLIC_DIR, "cards-data.json");
+
+async function buildCardData() {
+  // 1. Fast path — use the local disk cache if it's less than 7 days old
+  if (existsSync(CARDS_CACHE)) {
+    try {
+      const cached  = JSON.parse(readFileSync(CARDS_CACHE, "utf8"));
+      const ageDays = (Date.now() - new Date(cached.fetchedAt ?? cached.checkedAt).getTime()) / 86_400_000;
+      if (ageDays < 7 && cached.cards?.length > 0) {
+        writeFileSync(CARDS_OUT, JSON.stringify(cached.cards));
+        console.log(`[build-card-data] ✓ local cache (${Math.round(ageDays * 24)}h old, ${cached.cards.length} cards) → public/cards-data.json`);
+        return;
+      }
+    } catch (e) {
+      console.log(`[build-card-data] Local cache unreadable: ${e.message}`);
+    }
+  }
+
+  // 2. Fetch fresh from sorcerytcg.com
+  console.log("[build-card-data] Fetching cards from sorcerytcg.com…");
+  try {
+    const res = await fetch(CARDS_API, {
+      headers: { "User-Agent": "SorcerySim/1.0 (build script)" },
+    });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    const cards = await res.json();
+    writeFileSync(CARDS_OUT, JSON.stringify(cards));
+    console.log(`[build-card-data] ✓ fresh fetch: ${cards.length} cards → public/cards-data.json`);
+  } catch (err) {
+    console.error(`[build-card-data] Failed: ${err.message}`);
+    // Write an empty array so readFileSync doesn't throw at runtime
+    if (!existsSync(CARDS_OUT)) {
+      writeFileSync(CARDS_OUT, "[]");
+      console.log("[build-card-data] Wrote empty fallback.");
+    }
+  }
+}
+
+buildCardData();
