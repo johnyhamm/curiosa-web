@@ -99,11 +99,12 @@ function CardCard({ card }: { card: Card }) {
       {imgUrl && (
         <div className="w-full">
           {isSite ? (
-            // Site cards are landscape — rotate 90° clockwise so text reads horizontally
+            // Site cards are landscape — the image column is fixed at 200px.
+            // Standard card ratio 63:88 → portrait display = 200×280px.
+            // Set CSS width=280, height=200, rotate 90°: visual becomes 200×280.
             <div
-              className="relative overflow-hidden rounded-lg shadow-lg shadow-black/50"
-              style={{ aspectRatio: "63 / 88" }}
-              onError={() => {}}
+              className="relative overflow-hidden rounded-lg shadow-lg shadow-black/50 w-full"
+              style={{ height: "280px" }}
             >
               <img
                 src={imgUrl}
@@ -112,14 +113,15 @@ function CardCard({ card }: { card: Card }) {
                   position: "absolute",
                   top: "50%",
                   left: "50%",
-                  width: "140%",
-                  height: "140%",
+                  width: "280px",
+                  height: "200px",
+                  maxWidth: "none",
                   objectFit: "cover",
                   objectPosition: "center",
-                  transform: "translate(-50%, -50%) rotate(90deg)",
+                  transform: "translate(-140px, -100px) rotate(90deg)",
                 }}
                 loading="lazy"
-                onError={(e) => { e.currentTarget.parentElement!.style.display = "none"; }}
+                onError={(e) => { (e.currentTarget.parentElement as HTMLElement).style.display = "none"; }}
               />
             </div>
           ) : (
