@@ -4,10 +4,8 @@ import { useState, useEffect } from "react";
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { useAuth, SignInButton, SignUpButton, UserButton } from "@clerk/nextjs";
-import { CheckoutButton } from "@clerk/nextjs/experimental";
 import { useFeedback } from "@/app/components/FeedbackProvider";
 
-const PLAN_ID = "cplan_3E81Ot3T0AQw82rZjHJJynER1Jw";
 const clerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
 const NAV_LINKS = [
@@ -29,11 +27,13 @@ function MobileAuthSection({ onClose }: { onClose: () => void }) {
     return (
       <div className="flex flex-col gap-1">
         {!isSubscriber && (
-          <CheckoutButton planId={PLAN_ID}>
-            <button className="w-full text-left px-3 py-3 text-sm font-semibold text-amber-400 hover:bg-gray-800 rounded-md transition-colors">
-              ✦ Subscribe — remove ads
-            </button>
-          </CheckoutButton>
+          <Link
+            href="/pricing"
+            onClick={onClose}
+            className="px-3 py-3 text-sm font-semibold text-amber-400 hover:bg-gray-800 rounded-md transition-colors"
+          >
+            ✦ Subscribe — remove ads
+          </Link>
         )}
         <Link
           href="/profile"
