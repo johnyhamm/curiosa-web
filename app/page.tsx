@@ -9,15 +9,15 @@ export const revalidate = 3600;
 
 const features = [
   {
-    href: "/cards",
-    title: "Card Search",
-    icon: "🃏",
+    href: "/deckbuilder",
+    title: "Deck Builder",
+    icon: "🔨",
     description:
-      "Search all Sorcery: Contested Realm cards by name, rules text, element, type, rarity, or set. Full card details including stats, thresholds, and flavor text.",
-    cta: "Browse Cards",
-    color: "from-blue-900/40 to-blue-800/20",
-    border: "border-blue-700/40",
-    accent: "text-blue-400",
+      "Build a deck from scratch with full rules enforcement — 60-card Spellbook, 30-card Atlas, rarity copy limits. Test it instantly against any public deck.",
+    cta: "Build a Deck",
+    color: "from-amber-900/40 to-amber-800/20",
+    border: "border-amber-700/40",
+    accent: "text-amber-400",
   },
   {
     href: "/decks",
@@ -65,26 +65,8 @@ export default function Home() {
         </p>
       </div>
 
-      {/* Card of the Day */}
-      <Suspense
-        fallback={
-          <div className="rounded-2xl border border-amber-700/20 bg-gray-900 h-64 animate-pulse mb-12" />
-        }
-      >
-        <div className="mb-12">
-          <CardOfTheDay />
-        </div>
-      </Suspense>
-
-      {/* News */}
-      <Suspense fallback={null}>
-        <div className="mb-12">
-          <NewsSection />
-        </div>
-      </Suspense>
-
       {/* Feature cards */}
-      <div className="grid sm:grid-cols-3 gap-6">
+      <div className="grid sm:grid-cols-3 gap-6 mb-12">
         {features.map((f) => (
           <Link
             key={f.href}
@@ -104,6 +86,22 @@ export default function Home() {
           </Link>
         ))}
       </div>
+
+      {/* Card of the Day */}
+      <Suspense
+        fallback={
+          <div className="rounded-2xl border border-amber-700/20 bg-gray-900 h-64 animate-pulse mb-12" />
+        }
+      >
+        <div className="mb-12">
+          <CardOfTheDay />
+        </div>
+      </Suspense>
+
+      {/* News */}
+      <Suspense fallback={null}>
+        <NewsSection />
+      </Suspense>
 
     </div>
   );
