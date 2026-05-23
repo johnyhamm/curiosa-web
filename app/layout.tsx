@@ -3,6 +3,7 @@ import { Geist, Geist_Mono, Cinzel_Decorative } from "next/font/google";
 import Link from "next/link";
 import { ClerkProvider } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
+import { Analytics } from "@vercel/analytics/next";
 import { NavAuth } from "@/components/NavAuth";
 import { FeedbackProvider } from "@/app/components/FeedbackProvider";
 import { FeedbackNavButton } from "@/app/components/FeedbackNavButton";
@@ -146,6 +147,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </nav>
         <main className="flex-1">{children}</main>
+        <Analytics />
         <footer className="bg-gray-900 border-t border-gray-800 py-6 text-center text-sm text-gray-500">
           SorcerySim — Unofficial simulator for Sorcery: Contested Realm. Data from{" "}
           <a
