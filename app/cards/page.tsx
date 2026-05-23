@@ -42,7 +42,7 @@ function CardCard({ card }: { card: Card }) {
     .join(" ");
 
   return (
-    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "minmax(0, 1fr) 280px" }}>
+    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: `minmax(0, 1fr) ${isSite && imgUrl ? "280px" : "200px"}` }}>
 
       {/* ── Card details ── */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-2 hover:border-gray-700 transition-colors">
