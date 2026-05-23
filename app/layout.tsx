@@ -141,6 +141,12 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 >
                   Builder
                 </Link>
+                <Link
+                  href="/about"
+                  className="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
+                >
+                  About Us
+                </Link>
                 <FeedbackNavButton />
                 <NavAuth />
               </div>

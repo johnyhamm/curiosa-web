@@ -15,6 +15,7 @@ const NAV_LINKS = [
   { href: "/simulate",    label: "Simulate" },
   { href: "/tournament",  label: "Tournament" },
   { href: "/deckbuilder", label: "Builder" },
+  { href: "/about",       label: "About Us" },
 ];
 
 function MobileAuthSection({ onClose }: { onClose: () => void }) {
