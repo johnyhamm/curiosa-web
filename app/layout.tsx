@@ -40,9 +40,19 @@ function AppShell({ children }: { children: React.ReactNode }) {
             <div className="flex items-center justify-between h-14">
               <Link
                 href="/"
-                className="text-amber-400 font-bold text-xl tracking-tight hover:text-amber-300 transition-colors"
+                className="flex items-center gap-2 hover:opacity-90 transition-opacity"
               >
-                SorcerySim
+                {/* Philosopher's Stone card art */}
+                <img
+                  src="/api/card-image?id=1wqDYgPPy3kQCiux4Q5Kl6dwBUX0wtWx3&sz=w64"
+                  alt="Philosopher's Stone"
+                  width={28}
+                  height={28}
+                  className="rounded-full object-cover object-top w-7 h-7 ring-1 ring-amber-500/40"
+                />
+                <span className="text-amber-400 font-bold text-xl tracking-tight hover:text-amber-300 transition-colors">
+                  SorcerySim
+                </span>
               </Link>
               <div className="flex items-center gap-1">
                 <Link
