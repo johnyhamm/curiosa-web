@@ -103,6 +103,41 @@ export default function Home() {
         <NewsSection />
       </Suspense>
 
+      {/* Community & Resources */}
+      <div className="mt-12">
+        <div className="flex items-center gap-3 mb-4">
+          <h2 className="text-sm font-bold uppercase tracking-widest text-gray-500 shrink-0">
+            Community &amp; Resources
+          </h2>
+          <div className="flex-1 border-t border-gray-800" />
+        </div>
+        <div className="flex flex-wrap gap-2">
+          {[
+            { label: "Official Site",      href: "https://sorcerytcg.com",          icon: "🏰" },
+            { label: "Play Online",        href: "https://play.sorcerytcg.com",     icon: "🎮" },
+            { label: "Curiosa.io",         href: "https://curiosa.io",              icon: "📚" },
+            { label: "Discord",            href: "https://discord.gg/beEMKYRz",     icon: "💬" },
+            { label: "TCGplayer",          href: "https://tcgplayer.com",           icon: "🛒" },
+            { label: "Team Covenant",      href: "https://teamcovenant.com",        icon: "⚔️" },
+          ].map(({ label, href, icon }) => (
+            <a
+              key={href}
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-full
+                bg-gray-900 hover:bg-gray-800
+                border border-gray-800 hover:border-gray-700
+                text-sm text-gray-400 hover:text-white
+                transition-colors"
+            >
+              <span>{icon}</span>
+              {label}
+            </a>
+          ))}
+        </div>
+      </div>
+
     </div>
   );
 }
