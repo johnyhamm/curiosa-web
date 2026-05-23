@@ -66,6 +66,18 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 >
                   Simulate
                 </Link>
+                <Link
+                  href="/tournament"
+                  className="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
+                >
+                  Tournament
+                </Link>
+                <Link
+                  href="/deckbuilder"
+                  className="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
+                >
+                  Builder
+                </Link>
                 <NavAuth />
               </div>
             </div>

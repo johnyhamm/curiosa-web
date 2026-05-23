@@ -6,12 +6,22 @@ import type { ApiDeckCard } from "@/lib/simulator";
 
 export const dynamic = "force-dynamic";
 
+interface DeckOverrideBody {
+  decklist: ApiDeckCard[];
+  avatar: ApiDeckCard | null;
+  name: string;
+}
+
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as {
       deckA: string;
       deckB: string;
       iterations?: number;
+      /** If provided, skip fetching Deck A from curiosa.io and use this data instead. */
+      deckAOverride?: DeckOverrideBody;
+      /** If provided, skip fetching Deck B from curiosa.io and use this data instead. */
+      deckBOverride?: DeckOverrideBody;
     };
 
     const { deckA, deckB } = body;
@@ -27,10 +37,15 @@ export async function POST(request: NextRequest) {
     const idA = extractDeckId(deckA);
     const idB = extractDeckId(deckB);
 
-    // Fetch both decks and card database in parallel (for keyword detection)
+    // Fetch both decks and card database in parallel.
+    // Skip API fetch for any deck that has a client-side override.
     const [dataA, dataB, allCards] = await Promise.all([
-      fetchDeckFromApi(idA),
-      fetchDeckFromApi(idB),
+      body.deckAOverride
+        ? Promise.resolve({ decklist: body.deckAOverride.decklist, avatar: body.deckAOverride.avatar, meta: { name: body.deckAOverride.name } })
+        : fetchDeckFromApi(idA),
+      body.deckBOverride
+        ? Promise.resolve({ decklist: body.deckBOverride.decklist, avatar: body.deckBOverride.avatar, meta: { name: body.deckBOverride.name } })
+        : fetchDeckFromApi(idB),
       loadCards(),
     ]);
 

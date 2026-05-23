@@ -5,6 +5,8 @@ import { useAuthSafe } from "@/lib/useAuthSafe";
 import type { SimulationReport } from "@/lib/simulator";
 import { GridBoard } from "./GridBoard";
 import { DeckPicker } from "./DeckPicker";
+import { DeckEditor } from "./DeckEditor";
+import type { DeckOverride } from "./DeckEditor";
 import { MatchExplanation } from "./MatchExplanation";
 
 /** Single tug-of-war bar: amber = A wins, gray = draws, sky = B wins */
@@ -42,6 +44,8 @@ export default function SimulatePage() {
 
   const [deckA, setDeckA] = useState("");
   const [deckB, setDeckB] = useState("");
+  const [deckAOverride, setDeckAOverride] = useState<DeckOverride | null>(null);
+  const [deckBOverride, setDeckBOverride] = useState<DeckOverride | null>(null);
   const [iterations, setIterations] = useState(500);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -89,7 +93,13 @@ export default function SimulatePage() {
       const res = await fetch("/api/simulate", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ deckA: deckA.trim(), deckB: deckB.trim(), iterations }),
+        body: JSON.stringify({
+          deckA: deckA.trim(),
+          deckB: deckB.trim(),
+          iterations,
+          ...(deckAOverride ? { deckAOverride } : {}),
+          ...(deckBOverride ? { deckBOverride } : {}),
+        }),
       });
       if (!res.ok) {
         const data = await res.json() as { error?: string };
@@ -130,18 +140,36 @@ export default function SimulatePage() {
       {/* Inputs */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-8 flex flex-col gap-4">
         <div className="grid sm:grid-cols-2 gap-4">
-          <DeckPicker
-            label="Deck A"
-            value={deckA}
-            onChange={(id) => setDeckA(id)}
-            accentColor="amber"
-          />
-          <DeckPicker
-            label="Deck B"
-            value={deckB}
-            onChange={(id) => setDeckB(id)}
-            accentColor="sky"
-          />
+          <div className="flex flex-col gap-2">
+            <DeckPicker
+              label="Deck A"
+              value={deckA}
+              onChange={(id) => { setDeckA(id); setDeckAOverride(null); }}
+              accentColor="amber"
+            />
+            {deckA.trim() && (
+              <DeckEditor
+                deckValue={deckA.trim()}
+                accentColor="amber"
+                onOverride={setDeckAOverride}
+              />
+            )}
+          </div>
+          <div className="flex flex-col gap-2">
+            <DeckPicker
+              label="Deck B"
+              value={deckB}
+              onChange={(id) => { setDeckB(id); setDeckBOverride(null); }}
+              accentColor="sky"
+            />
+            {deckB.trim() && (
+              <DeckEditor
+                deckValue={deckB.trim()}
+                accentColor="sky"
+                onOverride={setDeckBOverride}
+              />
+            )}
+          </div>
         </div>
 
         <div className="flex flex-col gap-2">

@@ -3,6 +3,7 @@
 import { useEffect, useState } from "react";
 import { useUser } from "@clerk/nextjs";
 import Link from "next/link";
+import type { SavedBuilderDeck } from "@/lib/builder-deck";
 
 interface FavoriteDeckMeta {
   name: string;
@@ -44,7 +45,8 @@ export function ProfileDashboard() {
 
   const [favorites, setFavorites] = useState<FavoritesData | null>(null);
   const [simResults, setSimResults] = useState<SimSummary[] | null>(null);
-  const [tab, setTab] = useState<"favorites" | "simulations">("favorites");
+  const [builderDecks, setBuilderDecks] = useState<SavedBuilderDeck[] | null>(null);
+  const [tab, setTab] = useState<"favorites" | "simulations" | "builder">("favorites");
 
   // Load user data
   useEffect(() => {
@@ -57,7 +59,21 @@ export function ProfileDashboard() {
       .then((r) => r.json())
       .then(setSimResults)
       .catch(console.error);
+
+    fetch("/api/user/builder-decks")
+      .then((r) => (r.ok ? r.json() : []))
+      .then((d) => setBuilderDecks(d as SavedBuilderDeck[]))
+      .catch(console.error);
   }, []);
+
+  const deleteBuilderDeck = async (id: string) => {
+    await fetch("/api/user/builder-decks", {
+      method: "DELETE",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ id }),
+    });
+    setBuilderDecks((prev) => (prev ? prev.filter((d) => d.id !== id) : prev));
+  };
 
   const removeFavorite = async (deckId: string) => {
     await fetch("/api/user/favorites", {
@@ -135,7 +151,7 @@ export function ProfileDashboard() {
       </div>
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-lg p-1 mb-6 w-fit">
+      <div className="flex gap-1 bg-gray-900 border border-gray-800 rounded-lg p-1 mb-6 w-fit flex-wrap">
         <button
           onClick={() => setTab("favorites")}
           className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
@@ -145,6 +161,16 @@ export function ProfileDashboard() {
           }`}
         >
           Saved Decks{favorites ? ` (${favorites.ids.length})` : ""}
+        </button>
+        <button
+          onClick={() => setTab("builder")}
+          className={`px-4 py-2 rounded text-sm font-medium transition-colors ${
+            tab === "builder"
+              ? "bg-amber-500 text-gray-950"
+              : "text-gray-400 hover:text-white"
+          }`}
+        >
+          My Builds{builderDecks ? ` (${builderDecks.length})` : ""}
         </button>
         <button
           onClick={() => setTab("simulations")}
@@ -221,6 +247,85 @@ export function ProfileDashboard() {
                   </div>
                 );
               })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Builder Decks tab */}
+      {tab === "builder" && (
+        <div>
+          {!builderDecks && (
+            <p className="text-gray-500 text-sm">Loading your builds…</p>
+          )}
+          {builderDecks && builderDecks.length === 0 && (
+            <div className="text-center py-16 text-gray-600">
+              <p className="text-4xl mb-3">🃏</p>
+              <p>No saved builds yet.</p>
+              <p className="text-sm mt-1">
+                Open the{" "}
+                <Link href="/deckbuilder" className="text-amber-500 hover:text-amber-400">
+                  Deck Builder
+                </Link>{" "}
+                and click <span className="text-amber-500">Save</span> to store a deck here.
+              </p>
+            </div>
+          )}
+          {builderDecks && builderDecks.length > 0 && (
+            <div className="flex flex-col gap-3">
+              {builderDecks.map((deck) => {
+                const spellbookCount = deck.e
+                  .filter(([, , , type]) => type !== "Site")
+                  .reduce((s, [, qty]) => s + qty, 0);
+                const atlasCount = deck.e
+                  .filter(([, , , type]) => type === "Site")
+                  .reduce((s, [, qty]) => s + qty, 0);
+                return (
+                  <div
+                    key={deck.id}
+                    className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex items-center justify-between gap-4 hover:border-gray-700 transition-colors"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <div className="font-semibold text-white truncate">{deck.name}</div>
+                      {deck.av && (
+                        <div className="text-sm text-gray-500 mt-0.5">
+                          Avatar: {deck.av}
+                        </div>
+                      )}
+                      <div className="flex gap-3 mt-1.5 text-xs text-gray-600">
+                        <span>
+                          <span className="text-blue-400 font-medium">{spellbookCount}</span>
+                          {" "}Spellbook
+                        </span>
+                        <span>
+                          <span className="text-green-400 font-medium">{atlasCount}</span>
+                          {" "}Atlas
+                        </span>
+                        <span>{new Date(deck.at).toLocaleDateString()}</span>
+                      </div>
+                    </div>
+                    <div className="flex items-center gap-3 shrink-0">
+                      <Link
+                        href="/deckbuilder"
+                        className="text-xs text-amber-500 hover:text-amber-400 transition-colors"
+                        title="Open Deck Builder to load this deck"
+                      >
+                        Open Builder ↗
+                      </Link>
+                      <button
+                        onClick={() => deleteBuilderDeck(deck.id)}
+                        className="text-xs text-gray-600 hover:text-red-400 transition-colors"
+                        title="Delete this build"
+                      >
+                        ✕
+                      </button>
+                    </div>
+                  </div>
+                );
+              })}
+              <p className="text-xs text-gray-700 text-center mt-2">
+                Up to 5 builds saved. Load a build in the Deck Builder to edit it.
+              </p>
             </div>
           )}
         </div>
