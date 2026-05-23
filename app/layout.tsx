@@ -5,6 +5,7 @@ import { ClerkProvider } from "@clerk/nextjs";
 import { auth } from "@clerk/nextjs/server";
 import { Analytics } from "@vercel/analytics/next";
 import { NavAuth } from "@/components/NavAuth";
+import { NavSubscribeButton } from "@/components/NavSubscribeButton";
 import { FeedbackProvider } from "@/app/components/FeedbackProvider";
 import { FeedbackNavButton } from "@/app/components/FeedbackNavButton";
 import "./globals.css";
@@ -101,6 +102,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 </span>
               </Link>
               <div className="flex items-center gap-1">
+                <NavSubscribeButton />
                 <Link
                   href="/"
                   className="px-3 py-2 rounded-md text-sm font-medium text-gray-300 hover:text-white hover:bg-gray-800 transition-colors"
