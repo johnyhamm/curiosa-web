@@ -1,15 +1,20 @@
 "use client";
 
 import { useAuth } from "@clerk/nextjs";
-// CheckoutButton is in the experimental package — Clerk Billing is in public beta
 import { CheckoutButton } from "@clerk/nextjs/experimental";
 
 const PLAN_ID = process.env.NEXT_PUBLIC_CLERK_PLAN_ID ?? "cplan_3E81Ot3T0AQw82rZjHJJynER1Jw";
+const clerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
+// Outer shell guards against rendering hooks outside <ClerkProvider />
 export function NavSubscribeButton() {
+  if (!clerkConfigured) return null;
+  return <NavSubscribeButtonInner />;
+}
+
+function NavSubscribeButtonInner() {
   const { isSignedIn, has } = useAuth();
 
-  // Hide if not signed in, or already a subscriber
   if (!isSignedIn) return null;
   if (has?.({ plan: "user:monthly" })) return null;
 

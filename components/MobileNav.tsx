@@ -8,6 +8,7 @@ import { CheckoutButton } from "@clerk/nextjs/experimental";
 import { useFeedback } from "@/app/components/FeedbackProvider";
 
 const PLAN_ID = "cplan_3E81Ot3T0AQw82rZjHJJynER1Jw";
+const clerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
 const NAV_LINKS = [
   { href: "/",            label: "Home" },
@@ -131,7 +132,7 @@ export function MobileNav() {
             <div className="border-t border-gray-800 my-1" />
             <FeedbackMenuItem onClose={() => setIsOpen(false)} />
             <div className="border-t border-gray-800 my-1" />
-            <MobileAuthSection onClose={() => setIsOpen(false)} />
+            {clerkConfigured && <MobileAuthSection onClose={() => setIsOpen(false)} />}
           </div>
         </>
       )}
