@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import { useAuthSafe } from "@/lib/useAuthSafe";
 import { useDeckSearch } from "@/lib/deck-client-cache";
@@ -93,11 +93,13 @@ function DeckRow({
               <button
                 onClick={(e) => { e.stopPropagation(); onToggleFavorite(deck); }}
                 title={isFavorited ? "Remove from saved" : "Save deck"}
-                className={`text-lg leading-none transition-colors ${
-                  isFavorited ? "text-amber-400" : "text-gray-700 hover:text-amber-500"
+                className={`text-xl leading-none transition-all duration-150 active:scale-125 ${
+                  isFavorited
+                    ? "text-amber-400 scale-110"
+                    : "text-gray-600 hover:text-amber-400"
                 }`}
               >
-                ⭐
+                {isFavorited ? "★" : "☆"}
               </button>
               <a
                 href={`https://curiosa.io/decks/${deck.id}`}
@@ -197,7 +199,7 @@ function DeckList({ data, deckId }: { data: FullDeckData; deckId: string }) {
 
 const PAGE_SIZE = 30;
 
-export default function DecksPage() {
+function DecksPageContent() {
   const { isSignedIn } = useAuthSafe();
   const searchParams = useSearchParams();
 
@@ -396,5 +398,13 @@ export default function DecksPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function DecksPage() {
+  return (
+    <Suspense fallback={<div className="max-w-6xl mx-auto px-4 py-10 text-gray-500">Loading…</div>}>
+      <DecksPageContent />
+    </Suspense>
   );
 }

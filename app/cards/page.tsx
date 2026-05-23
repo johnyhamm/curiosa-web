@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, Suspense } from "react";
 import { useSearchParams } from "next/navigation";
 import type { Card } from "@/lib/cards";
+import { cardImageUrl } from "@/lib/card-images";
 
 const ELEMENTS = ["", "air", "earth", "fire", "water"] as const;
 const TYPES = ["", "Minion", "Magic", "Artifact", "Aura", "Site"] as const;
@@ -33,65 +34,86 @@ function rarityColor(rarity: string | null | undefined): string {
 
 function CardCard({ card }: { card: Card }) {
   const g = card.guardian;
+  const imgUrl = cardImageUrl(card.name);
   const thresholds = Object.entries(g.thresholds ?? {})
     .filter(([, v]) => v > 0)
     .map(([k, v]) => `${k ? k[0].toUpperCase() : "?"}${v}`)
     .join(" ");
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-2 hover:border-gray-700 transition-colors">
-      <div className="flex items-start justify-between gap-2">
-        <h3 className="font-bold text-white text-lg leading-tight">{card.name}</h3>
-        <span className={`text-xs font-semibold shrink-0 ${rarityColor(g.rarity)}`}>
-          {g.rarity}
-        </span>
-      </div>
+    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden flex hover:border-gray-700 transition-colors">
 
-      <div className="flex flex-wrap gap-2 text-xs">
-        <span className="bg-gray-800 rounded px-2 py-0.5 text-gray-300">{g.type}</span>
-        {card.subTypes && (
-          <span className="bg-gray-800 rounded px-2 py-0.5 text-gray-400">{card.subTypes}</span>
-        )}
-        {card.elements && (
-          <span className={`bg-gray-800 rounded px-2 py-0.5 font-medium ${elementColor(card.elements)}`}>
-            {card.elements}
+      {/* ── Card details (left) ── */}
+      <div className="flex-1 p-4 flex flex-col gap-2 min-w-0">
+        <div className="flex items-start justify-between gap-2">
+          <h3 className="font-bold text-white text-lg leading-tight">{card.name}</h3>
+          <span className={`text-xs font-semibold shrink-0 ${rarityColor(g.rarity)}`}>
+            {g.rarity}
           </span>
+        </div>
+
+        <div className="flex flex-wrap gap-2 text-xs">
+          <span className="bg-gray-800 rounded px-2 py-0.5 text-gray-300">{g.type}</span>
+          {card.subTypes && (
+            <span className="bg-gray-800 rounded px-2 py-0.5 text-gray-400">{card.subTypes}</span>
+          )}
+          {card.elements && (
+            <span className={`bg-gray-800 rounded px-2 py-0.5 font-medium ${elementColor(card.elements)}`}>
+              {card.elements}
+            </span>
+          )}
+        </div>
+
+        <div className="flex flex-wrap gap-3 text-sm text-gray-400">
+          {g.cost != null && (
+            <span>Cost: <span className="text-white font-medium">{g.cost}</span></span>
+          )}
+          {thresholds && (
+            <span>Thresh: <span className="text-amber-400 font-medium font-mono text-xs">{thresholds}</span></span>
+          )}
+          {(g.attack != null || g.defence != null) && (
+            <span>
+              ATK <span className="text-red-400 font-medium">{g.attack ?? "—"}</span>
+              {" / "}
+              DEF <span className="text-blue-400 font-medium">{g.defence ?? "—"}</span>
+              {g.life != null && (
+                <> / LIFE <span className="text-green-400 font-medium">{g.life}</span></>
+              )}
+            </span>
+          )}
+        </div>
+
+        {g.rulesText && (
+          <p className="text-gray-400 text-sm leading-relaxed border-t border-gray-800 pt-2 mt-1 whitespace-pre-wrap">
+            {g.rulesText}
+          </p>
         )}
+
+        <div className="text-xs text-gray-600 mt-auto pt-1">
+          Sets: {card.sets.map((s) => s.name).join(", ")}
+        </div>
       </div>
 
-      <div className="flex flex-wrap gap-3 text-sm text-gray-400">
-        {g.cost != null && (
-          <span>Cost: <span className="text-white font-medium">{g.cost}</span></span>
-        )}
-        {thresholds && (
-          <span>Thresh: <span className="text-amber-400 font-medium font-mono text-xs">{thresholds}</span></span>
-        )}
-        {(g.attack != null || g.defence != null) && (
-          <span>
-            ATK <span className="text-red-400 font-medium">{g.attack ?? "—"}</span>
-            {" / "}
-            DEF <span className="text-blue-400 font-medium">{g.defence ?? "—"}</span>
-            {g.life != null && (
-              <> / LIFE <span className="text-green-400 font-medium">{g.life}</span></>
-            )}
-          </span>
-        )}
-      </div>
-
-      {g.rulesText && (
-        <p className="text-gray-400 text-sm leading-relaxed border-t border-gray-800 pt-2 mt-1 whitespace-pre-wrap">
-          {g.rulesText}
-        </p>
+      {/* ── Card image (right) ── */}
+      {imgUrl && (
+        <div className="shrink-0 w-24 sm:w-28 bg-gray-950">
+          <img
+            src={imgUrl}
+            alt={card.name}
+            width={112}
+            height={157}
+            className="w-full h-full object-cover object-top"
+            loading="lazy"
+            onError={(e) => { e.currentTarget.parentElement!.style.display = "none"; }}
+          />
+        </div>
       )}
 
-      <div className="text-xs text-gray-600 mt-1">
-        Sets: {card.sets.map((s) => s.name).join(", ")}
-      </div>
     </div>
   );
 }
 
-export default function CardsPage() {
+function CardsPageContent() {
   const searchParams = useSearchParams();
   const initialQ = searchParams.get("q") ?? "";
 
@@ -232,5 +254,13 @@ export default function CardsPage() {
         </div>
       )}
     </div>
+  );
+}
+
+export default function CardsPage() {
+  return (
+    <Suspense fallback={<div className="max-w-6xl mx-auto px-4 py-10 text-gray-500">Loading…</div>}>
+      <CardsPageContent />
+    </Suspense>
   );
 }
