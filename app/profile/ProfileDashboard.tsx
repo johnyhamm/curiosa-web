@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { useUser } from "@clerk/nextjs";
+import { useUser, useClerk } from "@clerk/nextjs";
 import Link from "next/link";
 import type { SavedBuilderDeck } from "@/lib/builder-deck";
 
@@ -42,6 +42,7 @@ function elementBadge(el: string) {
 
 export function ProfileDashboard() {
   const { user, isLoaded } = useUser();
+  const { openUserProfile } = useClerk();
 
   const [favorites, setFavorites] = useState<FavoritesData | null>(null);
   const [simResults, setSimResults] = useState<SimSummary[] | null>(null);
@@ -139,14 +140,12 @@ export function ProfileDashboard() {
           <p className="text-sm text-gray-500">{user?.primaryEmailAddress?.emailAddress}</p>
         </div>
         <div className="ml-auto">
-          <a
-            href={`https://accounts.clerk.dev/user`}
-            target="_blank"
-            rel="noopener noreferrer"
+          <button
+            onClick={() => openUserProfile()}
             className="text-xs text-amber-500 hover:text-amber-400 border border-amber-500/30 hover:border-amber-400/40 rounded-lg px-3 py-1.5 transition-colors"
           >
-            Manage account ↗
-          </a>
+            Manage account
+          </button>
         </div>
       </div>
 
