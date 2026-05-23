@@ -1531,18 +1531,26 @@ function chooseSiteCard(sites: SimCard[], threshold: Threshold, spellHand: SimCa
 }
 
 function freeSiteSquares(grid: Grid, minions: BoardMinion[], owner: "A" | "B"): Pos[] {
+  // Sorcery allows multiple minions on the same site.
+  // We only track occupancy to enforce passive_max_one_occupant sites.
   const minionKeys = new Set(minions.map(m => posKey(m.pos)));
-  // passive_no_deploy_zone: block this site and the square directly in front of it
   const blocked = new Set<string>();
   for (const p of ownedSites(grid, owner)) {
-    if (getSquare(grid, p).site?.siteEffect?.kind === "passive_no_deploy_zone") {
+    const sq = getSquare(grid, p);
+    // passive_no_deploy_zone: block this site and the square directly in front of it
+    if (sq.site?.siteEffect?.kind === "passive_no_deploy_zone") {
       blocked.add(posKey(p));
       const frontDir = owner === "A" ? 1 : -1;
       const front = { col: p.col, row: p.row + frontDir };
       if (inBounds(front)) blocked.add(posKey(front));
     }
+    // passive_max_one_occupant: only one unit may be present at a time
+    if (sq.site?.siteEffect?.kind === "passive_max_one_occupant" && minionKeys.has(posKey(p))) {
+      blocked.add(posKey(p));
+    }
   }
-  return ownedSites(grid, owner).filter(p => !minionKeys.has(posKey(p)) && !blocked.has(posKey(p)));
+  // Multiple minions per site is legal — don't filter by general occupancy.
+  return ownedSites(grid, owner).filter(p => !blocked.has(posKey(p)));
 }
 
 function chooseMinionPosition(freeSites: Pos[], enemyAvatarPos: Pos): Pos {
@@ -1859,6 +1867,73 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       attackerDies: effDef(atk) <= 0 || (defDeals > 0 && bHasKw(def, "lethal")),
       defenderDies: effDef(def) <= 0 || (atkDeals > 0 && bHasKw(atk, "lethal")),
     };
+  }
+
+  // ── Group combat (one attacker vs multiple defenders at the same site) ──────
+  //
+  // Sorcery rule: when a minion steps onto a site occupied by multiple enemies,
+  // ALL enemies retaliate simultaneously (one retaliationEach per combat step),
+  // but the attacker only deals damage to ONE chosen target.  The same pattern
+  // applies when multiple defenders step in to block an attack on a site.
+  //
+  // Returns which parties die; callers handle removeMinion().
+
+  function resolveGroupCombat(
+    atk: BoardMinion,
+    defs: BoardMinion[]
+  ): { attackerDies: boolean; deadDefenders: BoardMinion[] } {
+    // All un-retaliated defenders deal their attack to the attacker simultaneously.
+    let totalIncoming = 0;
+    let anyLethalIncoming = false;
+    for (const def of defs) {
+      if (!def.retaliatedThisCombatStep) {
+        totalIncoming += effAtk(def);
+        if (bHasKw(def, "lethal")) anyLethalIncoming = true;
+        def.retaliatedThisCombatStep = true;
+      }
+    }
+    atk.tempDamage += totalIncoming;
+
+    // Attacker deals to the single best target: prefer the one it can kill,
+    // breaking ties by highest combined value.
+    const atkDmg   = effAtk(atk);
+    const atkLethal = bHasKw(atk, "lethal");
+    if (defs.length > 0) {
+      const target = [...defs].sort((a, b) => {
+        const aK = (atkDmg >= effDef(a) || (atkDmg > 0 && atkLethal)) ? 0 : 1;
+        const bK = (atkDmg >= effDef(b) || (atkDmg > 0 && atkLethal)) ? 0 : 1;
+        return aK - bK || minionValue(b.card) - minionValue(a.card);
+      })[0];
+      target.tempDamage += atkDmg;
+    }
+
+    return {
+      attackerDies:  effDef(atk) <= 0 || (totalIncoming > 0 && anyLethalIncoming),
+      deadDefenders: defs.filter(d => effDef(d) <= 0 || (atkDmg > 0 && atkLethal)),
+    };
+  }
+
+  // ── Defender-selection heuristic ─────────────────────────────────────────────
+  // Build the minimum "killing coalition" — the smallest set of defenders (sorted
+  // strongest-first) whose combined attack can kill the attacker. If no such
+  // coalition exists, commit just the single strongest defender. This avoids
+  // sending weak units to die pointlessly while still rewarding smart stacking.
+
+  function chooseDefenders(
+    attacker: BoardMinion,
+    candidates: BoardMinion[]
+  ): BoardMinion[] {
+    if (candidates.length === 0) return [];
+    const sorted = [...candidates].sort((a, b) => effAtk(b) - effAtk(a));
+    const coalition: BoardMinion[] = [];
+    let totalAtk = 0;
+    for (const d of sorted) {
+      coalition.push(d);
+      totalAtk += effAtk(d);
+      if (totalAtk >= effDef(attacker)) break; // enough to kill the attacker
+    }
+    const canKill = coalition.reduce((s, d) => s + effAtk(d), 0) >= effDef(attacker);
+    return canKill ? coalition : [sorted[0]];
   }
 
   // ── Ranged one-way attack ─────────────────────────────────────────────────
@@ -3441,14 +3516,17 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       const atSameSquare = enemyMinions(active.id).filter(e => posEq(e.pos, bm.pos) && canTarget(bm, e));
 
       if (atSameSquare.length > 0) {
-        const defender = [...atSameSquare].sort((a, b) => effAtk(b) - effAtk(a))[0];
+        // Group combat: ALL colocated enemies retaliate simultaneously; attacker
+        // deals to its single best target.
         if (bm.stealthy) bm.stealthy = false;
-        if (defender.stealthy) defender.stealthy = false;
-        const { attackerDies, defenderDies } = resolveFight(bm, defender);
+        for (const d of atSameSquare) if (d.stealthy) d.stealthy = false;
         bm.tapped = true;
-        emit(`T${turn} [${active.id}] ${bm.card.name} fights ${defender.card.name} at (${bm.pos.col},${bm.pos.row})`);
-        if (defenderDies) { removeMinion(defender); emit(`  → ${defender.card.name} destroyed`); }
-        if (attackerDies) { removeMinion(bm);       emit(`  → ${bm.card.name} destroyed in combat`); }
+        const defNames = atSameSquare.map(d => d.card.name).join(", ");
+        emit(`T${turn} [${active.id}] ${bm.card.name} fights [${defNames}] at (${bm.pos.col},${bm.pos.row})`);
+        const { attackerDies, deadDefenders } = resolveGroupCombat(bm, atSameSquare);
+        for (const dead of [...deadDefenders])
+          if (minions.includes(dead)) { removeMinion(dead); emit(`  → ${dead.card.name} destroyed`); }
+        if (attackerDies && minions.includes(bm)) { removeMinion(bm); emit(`  → ${bm.card.name} destroyed`); }
 
       } else {
         const sq = getSquare(grid, bm.pos);
@@ -3461,27 +3539,30 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
             !usedFirstAttack.has(posKey(originPos));
           if (firstAttackBypass) usedFirstAttack.add(posKey(originPos));
 
-          // Check for Defend (skipped if first_attack_undefendable fires)
-          const defenders = firstAttackBypass
+          // Check for Defend (skipped if first_attack_undefendable fires).
+          // Multiple adjacent defenders may pile in — select a killing coalition.
+          const allNearbyDef = firstAttackBypass
             ? []
             : friendlyMinions(opp.id).filter(
                 d => !d.tapped && cardinalDist(d.pos, bm.pos) <= 1 && canTarget(bm, d)
               );
-          if (defenders.length > 0) {
-            const def = [...defenders].sort(
-              (a, b) => cardinalDist(a.pos, bm.pos) - cardinalDist(b.pos, bm.pos)
-            )[0];
-            const fromPos = def.pos;
-            def.pos   = { ...bm.pos };
-            def.tapped = true;
-            def.stealthy = false; // S6: defending breaks Stealth
-            emit(`T${turn} [${opp.id}] ${def.card.name} defends from (${fromPos.col},${fromPos.row})`);
+          const chosenDef = chooseDefenders(bm, allNearbyDef);
+          if (chosenDef.length > 0) {
+            for (const def of chosenDef) {
+              const fromPos = { ...def.pos };
+              def.pos    = { ...bm.pos };
+              def.tapped  = true;
+              def.stealthy = false; // S6: defending breaks Stealth
+              emit(`T${turn} [${opp.id}] ${def.card.name} defends from (${fromPos.col},${fromPos.row})`);
+            }
             if (bm.stealthy) bm.stealthy = false;
-            const { attackerDies, defenderDies } = resolveFight(bm, def);
             bm.tapped = true;
-            emit(`T${turn} [${active.id}] ${bm.card.name} vs defender ${def.card.name}`);
-            if (defenderDies) { removeMinion(def); emit(`  → ${def.card.name} destroyed`); }
-            if (attackerDies) { removeMinion(bm);  emit(`  → ${bm.card.name} destroyed by defender`); }
+            const defStr = chosenDef.map(d => d.card.name).join(", ");
+            emit(`T${turn} [${active.id}] ${bm.card.name} vs [${defStr}]`);
+            const { attackerDies, deadDefenders } = resolveGroupCombat(bm, chosenDef);
+            for (const dead of [...deadDefenders])
+              if (minions.includes(dead)) { removeMinion(dead); emit(`  → ${dead.card.name} destroyed`); }
+            if (attackerDies && minions.includes(bm)) { removeMinion(bm); emit(`  → ${bm.card.name} destroyed by defenders`); }
           } else {
             // Undefended site — deal damage to avatar
             if (firstAttackBypass)
@@ -3551,38 +3632,72 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
       const pos = active.avatarPos;
       const sq  = getSquare(grid, pos);
 
-      // Enemies sharing the square
+      // Enemies sharing the square — avatar fights all of them (group combat).
       const colocated = enemyMinions(active.id).filter(e => posEq(e.pos, pos));
       if (colocated.length > 0) {
-        const def = [...colocated].sort((a, b) => effAtk(b) - effAtk(a))[0];
-        const defDies    = avatarAtk >= effDef(def);
-        const avatarHurt = effAtk(def) > 0;
-        emit(`T${turn} [${active.id}] ${active.avatarCard.name} (${avatarAtk}/${active.avatarCard.defense}) fights ${def.card.name}`);
-        if (defDies) { removeMinion(def); emit(`  → ${def.card.name} destroyed`); }
-        if (avatarHurt) damageAvatar(active, effAtk(def), def.card.name);
+        const colStr = colocated.map(d => d.card.name).join(", ");
+        emit(`T${turn} [${active.id}] ${active.avatarCard.name} (${avatarAtk}/${active.avatarCard.defense}) fights [${colStr}]`);
+        // All un-retaliated colocated enemies strike the avatar simultaneously.
+        let totalRetAtk = 0;
+        for (const def of colocated) {
+          if (!def.retaliatedThisCombatStep) {
+            totalRetAtk += effAtk(def);
+            def.retaliatedThisCombatStep = true;
+          }
+        }
+        // Avatar deals to its best target.
+        const bestTarget = [...colocated].sort((a, b) => {
+          const aK = avatarAtk >= effDef(a) ? 0 : 1;
+          const bK = avatarAtk >= effDef(b) ? 0 : 1;
+          return aK - bK || minionValue(b.card) - minionValue(a.card);
+        })[0];
+        bestTarget.tempDamage += avatarAtk;
+        if (effDef(bestTarget) <= 0) { removeMinion(bestTarget); emit(`  → ${bestTarget.card.name} destroyed`); }
+        if (totalRetAtk > 0) damageAvatar(active, totalRetAtk, colStr);
         return true;
       }
 
       if (sq.owner !== opp.id) return false;
 
-      // Check for Defend on this site
-      const defenders = friendlyMinions(opp.id).filter(
+      // Check for Defend — use killing-coalition heuristic, same as minion defense.
+      const allNearbyAvatarDef = friendlyMinions(opp.id).filter(
         d => !d.tapped && cardinalDist(d.pos, pos) <= 1
       );
-      if (defenders.length > 0) {
-        const def = [...defenders].sort(
-          (a, b) => cardinalDist(a.pos, pos) - cardinalDist(b.pos, pos)
-        )[0];
-        const fromPos = { ...def.pos };
-        def.pos    = { ...pos };
-        def.tapped  = true;
-        def.stealthy = false; // S6: defending breaks Stealth
-        emit(`T${turn} [${opp.id}] ${def.card.name} defends from (${fromPos.col},${fromPos.row})`);
-        const defDies    = avatarAtk >= effDef(def);
-        const avatarHurt = effAtk(def) > 0;
-        emit(`T${turn} [${active.id}] ${active.avatarCard.name} vs defender ${def.card.name}`);
-        if (defDies) { removeMinion(def); emit(`  → ${def.card.name} destroyed`); }
-        if (avatarHurt) damageAvatar(active, effAtk(def), def.card.name);
+      // Avatar's "attack" for coalition purpose = avatarAtk local variable
+      const avatarAtkFake: BoardMinion = {
+        card: { ...active.avatarCard, attack: avatarAtk },
+        pos, owner: active.id, tapped: false, sick: false, tempDamage: 0,
+        stealthy: false, skipNextUntap: false, temporary: false,
+        retaliatedThisCombatStep: false, burrowed: false, submerged: false, oversizedSecondPos: null,
+      };
+      const chosenAvatarDef = chooseDefenders(avatarAtkFake, allNearbyAvatarDef);
+      if (chosenAvatarDef.length > 0) {
+        for (const def of chosenAvatarDef) {
+          const fromPos = { ...def.pos };
+          def.pos    = { ...pos };
+          def.tapped  = true;
+          def.stealthy = false; // S6: defending breaks Stealth
+          emit(`T${turn} [${opp.id}] ${def.card.name} defends from (${fromPos.col},${fromPos.row})`);
+        }
+        const defStr2 = chosenAvatarDef.map(d => d.card.name).join(", ");
+        emit(`T${turn} [${active.id}] ${active.avatarCard.name} vs [${defStr2}]`);
+        // All defenders retaliate against avatar.
+        let totalRetAtk2 = 0;
+        for (const def of chosenAvatarDef) {
+          if (!def.retaliatedThisCombatStep) {
+            totalRetAtk2 += effAtk(def);
+            def.retaliatedThisCombatStep = true;
+          }
+        }
+        // Avatar deals to its best target.
+        const bestT = [...chosenAvatarDef].sort((a, b) => {
+          const aK = avatarAtk >= effDef(a) ? 0 : 1;
+          const bK = avatarAtk >= effDef(b) ? 0 : 1;
+          return aK - bK || minionValue(b.card) - minionValue(a.card);
+        })[0];
+        bestT.tempDamage += avatarAtk;
+        if (effDef(bestT) <= 0) { removeMinion(bestT); emit(`  → ${bestT.card.name} destroyed`); }
+        if (totalRetAtk2 > 0) damageAvatar(active, totalRetAtk2, defStr2);
         return true;
       }
 
