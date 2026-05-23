@@ -114,7 +114,7 @@ export default function Home() {
         <div className="flex flex-wrap gap-2">
           {[
             { label: "Official Site",      href: "https://sorcerytcg.com",          icon: "🏰" },
-            { label: "Play Online",        href: "https://play.sorcerytcg.com",     icon: "🎮" },
+            { label: "Find Organized Play", href: "https://play.sorcerytcg.com",     icon: "🎮" },
             { label: "Curiosa.io",         href: "https://curiosa.io",              icon: "📚" },
             { label: "Discord",            href: "https://discord.gg/beEMKYRz",     icon: "💬" },
             { label: "TCGplayer",          href: "https://tcgplayer.com",           icon: "🛒" },
