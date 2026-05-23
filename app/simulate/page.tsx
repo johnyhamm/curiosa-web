@@ -132,7 +132,7 @@ export default function SimulatePage() {
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-10">
-      <h1 className="text-3xl font-bold text-amber-400 mb-2">Match Simulator</h1>
+      <h1 className="text-3xl font-bold text-amber-400 mb-2" style={{ fontFamily: "var(--font-cinzel)" }}>Match Simulator</h1>
       <p className="text-gray-400 mb-8 text-sm">
         Run a Monte Carlo simulation between two public curiosa.io decks. Enter deck IDs or full URLs.
       </p>

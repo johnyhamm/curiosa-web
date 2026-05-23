@@ -320,7 +320,7 @@ export default function TournamentPage() {
 
   return (
     <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
-      <h1 className="text-3xl font-bold text-amber-400 mb-2">Tournament Bracket</h1>
+      <h1 className="text-3xl font-bold text-amber-400 mb-2" style={{ fontFamily: "var(--font-cinzel)" }}>Tournament Bracket</h1>
       <p className="text-gray-400 mb-8 text-sm">
         Single-elimination tournament. Every matchup runs a full Monte Carlo simulation — the
         deck with the higher win rate advances.

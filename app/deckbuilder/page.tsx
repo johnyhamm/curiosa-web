@@ -769,7 +769,7 @@ export default function DeckBuilderPage() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
-      <h1 className="text-3xl font-bold text-amber-400 mb-2">Deck Builder</h1>
+      <h1 className="text-3xl font-bold text-amber-400 mb-2" style={{ fontFamily: "var(--font-cinzel)" }}>Deck Builder</h1>
       <p className="text-gray-400 mb-8 text-sm">
         Build a deck from scratch and test it against any curiosa.io deck.
         Your work is saved automatically in this browser.

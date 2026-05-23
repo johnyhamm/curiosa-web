@@ -190,7 +190,7 @@ function CardsPageContent() {
 
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
-      <h1 className="text-3xl font-bold text-amber-400 mb-2">Card Search</h1>
+      <h1 className="text-3xl font-bold text-amber-400 mb-2" style={{ fontFamily: "var(--font-cinzel)" }}>Card Search</h1>
       <p className="text-gray-400 mb-8 text-sm">
         Search all Sorcery: Contested Realm cards.
       </p>
