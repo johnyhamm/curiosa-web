@@ -41,10 +41,10 @@ function CardCard({ card }: { card: Card }) {
     .join(" ");
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden flex hover:border-gray-700 transition-colors">
+    <div className="flex items-start gap-4">
 
-      {/* ── Card details (left) ── */}
-      <div className="flex-1 p-4 flex flex-col gap-2 min-w-0">
+      {/* ── Card details ── */}
+      <div className="flex-1 bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-2 min-w-0 hover:border-gray-700 transition-colors">
         <div className="flex items-start justify-between gap-2">
           <h3 className="font-bold text-white text-lg leading-tight">{card.name}</h3>
           <span className={`text-xs font-semibold shrink-0 ${rarityColor(g.rarity)}`}>
@@ -94,13 +94,13 @@ function CardCard({ card }: { card: Card }) {
         </div>
       </div>
 
-      {/* ── Card image (right) ── */}
+      {/* ── Card image — separate container ── */}
       {imgUrl && (
-        <div className="shrink-0 w-36 sm:w-40 bg-gray-950 border-l border-gray-800">
+        <div className="shrink-0 w-48 sm:w-56">
           <img
             src={imgUrl}
             alt={card.name}
-            className="w-full h-auto block"
+            className="w-full h-auto rounded-lg shadow-lg shadow-black/50"
             loading="lazy"
             onError={(e) => { e.currentTarget.parentElement!.style.display = "none"; }}
           />
