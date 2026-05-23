@@ -237,7 +237,7 @@ function CardsPageContent() {
               ? "No cards found."
               : `Showing ${results.length} card${results.length !== 1 ? "s" : ""}`}
           </p>
-          <div className="flex flex-col gap-4 max-w-3xl">
+          <div className="flex flex-col gap-4 max-w-2xl">
             {results.map((card) => (
               <CardCard key={card.name} card={card} />
             ))}
