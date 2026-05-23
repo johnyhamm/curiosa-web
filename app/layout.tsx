@@ -153,15 +153,22 @@ function AppShell({ children }: { children: React.ReactNode }) {
         <main className="flex-1">{children}</main>
         <Analytics />
         <footer className="bg-gray-900 border-t border-gray-800 py-6 text-center text-sm text-gray-500">
-          SorcerySim — Unofficial simulator for Sorcery: Contested Realm. Data from{" "}
-          <a
-            href="https://curiosa.io"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-amber-500 hover:text-amber-400"
-          >
-            curiosa.io
-          </a>
+          <p>
+            SorcerySim — Unofficial simulator for Sorcery: Contested Realm. Data from{" "}
+            <a
+              href="https://curiosa.io"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-amber-500 hover:text-amber-400"
+            >
+              curiosa.io
+            </a>
+          </p>
+          <p className="mt-2">
+            <Link href="/about" className="text-gray-600 hover:text-gray-400 transition-colors">
+              About
+            </Link>
+          </p>
         </footer>
       </FeedbackProvider>
       </body>
