@@ -4,7 +4,7 @@ import { useAuth } from "@clerk/nextjs";
 // CheckoutButton is in the experimental package — Clerk Billing is in public beta
 import { CheckoutButton } from "@clerk/nextjs/experimental";
 
-const PLAN_ID = process.env.NEXT_PUBLIC_CLERK_PLAN_ID ?? "";
+const PLAN_ID = process.env.NEXT_PUBLIC_CLERK_PLAN_ID ?? "cplan_3E81Ot3T0AQw82rZjHJJynER1Jw";
 
 export function NavSubscribeButton() {
   const { isSignedIn, has } = useAuth();
