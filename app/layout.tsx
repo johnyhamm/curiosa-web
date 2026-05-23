@@ -35,7 +35,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
     >
       <head>
         {/* Impact affiliate site verification */}
-        <meta name="impact-site-verification" value="a1f044c4-92d5-4a24-a3a3-791a56991846" />
+        <meta name="impact-site-verification" content="a1f044c4-92d5-4a24-a3a3-791a56991846" />
       </head>
       <body className="min-h-full flex flex-col bg-gray-950 text-white">
       <FeedbackProvider>
