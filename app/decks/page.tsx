@@ -1,6 +1,7 @@
 "use client";
 
 import { useState, useCallback, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import { useAuthSafe } from "@/lib/useAuthSafe";
 import { useDeckSearch } from "@/lib/deck-client-cache";
 import type { DeckIndexEntry } from "@/lib/decks";
@@ -198,9 +199,10 @@ const PAGE_SIZE = 30;
 
 export default function DecksPage() {
   const { isSignedIn } = useAuthSafe();
+  const searchParams = useSearchParams();
 
-  // Filter state
-  const [query,  setQuery]  = useState("");
+  // Filter state — seed from ?q= if coming from home search
+  const [query,  setQuery]  = useState(searchParams.get("q") ?? "");
   const [avatar, setAvatar] = useState("");
   const [sortBy, setSortBy] = useState<"likes" | "views">("views");
   const [page,   setPage]   = useState(0);

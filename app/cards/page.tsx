@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
+import { useSearchParams } from "next/navigation";
 import type { Card } from "@/lib/cards";
 
 const ELEMENTS = ["", "air", "earth", "fire", "water"] as const;
@@ -91,7 +92,10 @@ function CardCard({ card }: { card: Card }) {
 }
 
 export default function CardsPage() {
-  const [query, setQuery] = useState("");
+  const searchParams = useSearchParams();
+  const initialQ = searchParams.get("q") ?? "";
+
+  const [query, setQuery] = useState(initialQ);
   const [element, setElement] = useState("");
   const [type, setType] = useState("");
   const [rarity, setRarity] = useState("");
@@ -122,6 +126,12 @@ export default function CardsPage() {
       setLoading(false);
     }
   }, [query, element, type, rarity]);
+
+  // Auto-search when arriving from the home page search bar
+  useEffect(() => {
+    if (initialQ) search();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter") search();

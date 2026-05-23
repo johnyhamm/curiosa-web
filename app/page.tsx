@@ -2,53 +2,130 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { CardOfTheDay } from "@/app/components/CardOfTheDay";
 import { NewsSection } from "@/app/components/NewsSection";
+import { HomeSearch } from "@/app/components/HomeSearch";
 
 // Regenerate the home page at most every hour so the card-of-the-day
 // stays current without rebuilding on every request.
 export const revalidate = 3600;
 
-const features = [
+// ── Sorcery card-frame feature widgets ───────────────────────────────────────
+
+type CardElement = "Fire" | "Air" | "Earth" | "Water";
+
+interface FeatureCard {
+  href: string;
+  title: string;
+  element: CardElement;
+  description: string;
+  cta: string;
+  stroke: string;
+  artFrom: string;
+  artTo: string;
+}
+
+const features: FeatureCard[] = [
   {
     href: "/deckbuilder",
     title: "Deck Builder",
-    icon: "🔨",
+    element: "Fire",
     description:
       "Build a deck from scratch and test it instantly against any public deck.",
     cta: "Build a Deck",
-    color: "from-amber-900/40 to-amber-800/20",
-    border: "border-amber-700/40",
-    accent: "text-amber-400",
+    stroke: "#f97316",
+    artFrom: "from-orange-950",
+    artTo:   "to-red-950",
   },
   {
     href: "/decks",
     title: "Deck Explorer",
-    icon: "📚",
+    element: "Air",
     description:
-      "Browse 16,000+ public decks from curiosa.io. Filter by avatar, sort by most liked or most viewed, and inspect full decklists.",
+      "Browse 16,000+ public decks. Filter by avatar, sort by most liked or most viewed, and inspect full decklists.",
     cta: "Browse Decks",
-    color: "from-purple-900/40 to-purple-800/20",
-    border: "border-purple-700/40",
-    accent: "text-purple-400",
+    stroke: "#a78bfa",
+    artFrom: "from-violet-950",
+    artTo:   "to-purple-950",
   },
   {
     href: "/simulate",
     title: "Match Simulator",
-    icon: "⚔️",
+    element: "Earth",
     description:
-      "Run Monte Carlo simulations between any two public decks. Get win rates, average game length, life totals, and a sample game log.",
+      "Run Monte Carlo simulations between any two decks. Get win rates, average game length, and a full sample game log.",
     cta: "Run Simulation",
-    color: "from-red-900/40 to-red-800/20",
-    border: "border-red-700/40",
-    accent: "text-red-400",
+    stroke: "#d4a017",
+    artFrom: "from-yellow-950",
+    artTo:   "to-amber-950",
+  },
+  {
+    href: "/cards",
+    title: "Card Explorer",
+    element: "Water",
+    description:
+      "Search and filter the full card catalogue. Browse by element, type, keywords, and set.",
+    cta: "Search Cards",
+    stroke: "#38bdf8",
+    artFrom: "from-cyan-950",
+    artTo:   "to-sky-950",
   },
 ];
+
+// Elemental symbol SVGs matching the game rulebook icons
+function ElementSymbol({ element, stroke }: { element: CardElement; stroke: string }) {
+  const hasBar  = element === "Air" || element === "Earth";
+  const pointsUp = element === "Fire" || element === "Air";
+
+  const upPath   = "M50,4 L4,88 L96,88Z";
+  const downPath = "M50,88 L4,4 L96,4Z";
+  const barUp    = { x1: 22, y1: 38, x2: 78, y2: 38 };
+  const barDown  = { x1: 22, y1: 54, x2: 78, y2: 54 };
+
+  return (
+    <svg
+      width="120" height="112"
+      viewBox="0 0 100 92"
+      fill="none"
+      className="absolute opacity-30"
+      style={{ top: "50%", left: "50%", transform: "translate(-50%,-50%)", pointerEvents: "none" }}
+    >
+      <path
+        d={pointsUp ? upPath : downPath}
+        stroke={stroke} strokeWidth="3.5" strokeLinejoin="round" strokeLinecap="round"
+      />
+      {hasBar && (
+        <line
+          {...(pointsUp ? barUp : barDown)}
+          stroke={stroke} strokeWidth="3.5" strokeLinecap="round"
+        />
+      )}
+    </svg>
+  );
+}
+
+// Small threshold gem (top-right cost indicator)
+function ThresholdGems({ color }: { color: string }) {
+  return (
+    <div className="flex gap-1 shrink-0">
+      {[0, 1].map(i => (
+        <div
+          key={i}
+          className="w-3.5 h-3.5 rounded-full border"
+          style={{ borderColor: color, backgroundColor: color + "40" }}
+        />
+      ))}
+    </div>
+  );
+}
 
 export default function Home() {
   return (
     <div className="max-w-6xl mx-auto px-4 sm:px-6 py-16">
       {/* Hero */}
       <div className="text-center mb-16">
-        <h1 className="text-5xl sm:text-6xl font-bold text-amber-400 mb-4 tracking-tight">
+        <h1
+          className="text-5xl sm:text-6xl font-bold text-amber-400 mb-4"
+          style={{ fontFamily: "var(--font-cinzel)", letterSpacing: "0.02em" }}
+        >
           SorcerySim
         </h1>
         <p className="text-xl text-gray-400 max-w-2xl mx-auto">
@@ -61,24 +138,66 @@ export default function Home() {
           >
             Sorcery: Contested Realm
           </a>
-          . Search cards, explore decks, and simulate matches.
+          . Search cards, explore or build decks, and simulate matches.
         </p>
       </div>
 
-      {/* Feature cards */}
-      <div className="grid sm:grid-cols-3 gap-6 mb-12">
+      {/* Feature cards — Sorcery card frames */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-4 mb-12">
         {features.map((f) => (
           <Link
             key={f.href}
             href={f.href}
-            className={`group relative flex flex-col bg-gradient-to-b ${f.color} border ${f.border} rounded-xl p-6 hover:border-opacity-80 transition-all hover:scale-[1.02]`}
+            className="group relative flex flex-col overflow-hidden rounded-lg transition-all duration-200 hover:scale-[1.02] hover:shadow-2xl"
+            style={{
+              border: `2px solid ${f.stroke}50`,
+              boxShadow: `0 0 0 1px ${f.stroke}18`,
+            }}
           >
-            <div className="text-4xl mb-4">{f.icon}</div>
-            <h2 className={`text-xl font-bold mb-2 ${f.accent}`}>{f.title}</h2>
-            <p className="text-gray-400 text-sm leading-relaxed flex-1">{f.description}</p>
-            <div className="mt-6">
+            {/* ── Title bar ── */}
+            <div
+              className="relative flex items-center justify-between gap-1.5 px-2.5 py-2 bg-gray-950"
+              style={{ borderBottom: `1px solid ${f.stroke}30` }}
+            >
+              <span className="text-[9px] leading-none shrink-0" style={{ color: f.stroke + "90" }}>◆</span>
               <span
-                className={`inline-block text-sm font-semibold ${f.accent} group-hover:underline`}
+                className="flex-1 text-center text-xs font-bold tracking-wide text-white truncate"
+                style={{ fontFamily: "var(--font-cinzel)" }}
+              >
+                {f.title}
+              </span>
+              <ThresholdGems color={f.stroke} />
+              <span className="text-[9px] leading-none shrink-0" style={{ color: f.stroke + "90" }}>◆</span>
+            </div>
+
+            {/* ── Art box ── */}
+            <div
+              className={`relative h-32 bg-gradient-to-b ${f.artFrom} ${f.artTo} overflow-hidden`}
+            >
+              <ElementSymbol element={f.element} stroke={f.stroke} />
+              <div
+                className="absolute inset-0"
+                style={{ background: `radial-gradient(ellipse at center, ${f.stroke}20 0%, transparent 70%)` }}
+              />
+            </div>
+
+            {/* ── Text box ── */}
+            <div
+              className="flex-1 px-2.5 py-2.5 bg-gray-950"
+              style={{ borderTop: `1px solid ${f.stroke}20` }}
+            >
+              <p className="text-xs text-gray-300 leading-relaxed">{f.description}</p>
+            </div>
+
+            {/* ── Footer / CTA ── */}
+            <div
+              className="px-2.5 py-2 bg-gray-950 flex items-center justify-between"
+              style={{ borderTop: `1px solid ${f.stroke}25` }}
+            >
+              <span className="text-[9px] text-gray-700 uppercase tracking-widest">SorcerySim</span>
+              <span
+                className="text-xs font-semibold group-hover:underline transition-colors"
+                style={{ color: f.stroke, fontFamily: "var(--font-cinzel)" }}
               >
                 {f.cta} →
               </span>
@@ -86,6 +205,9 @@ export default function Home() {
           </Link>
         ))}
       </div>
+
+      {/* Search */}
+      <HomeSearch />
 
       {/* Card of the Day */}
       <Suspense

@@ -1,5 +1,5 @@
 import type { Metadata } from "next";
-import { Geist, Geist_Mono } from "next/font/google";
+import { Geist, Geist_Mono, Cinzel_Decorative } from "next/font/google";
 import Link from "next/link";
 import { ClerkProvider } from "@clerk/nextjs";
 import { NavAuth } from "@/components/NavAuth";
@@ -17,6 +17,12 @@ const geistMono = Geist_Mono({
   subsets: ["latin"],
 });
 
+const cinzelDecorative = Cinzel_Decorative({
+  variable: "--font-cinzel",
+  subsets: ["latin"],
+  weight: ["400", "700", "900"],
+});
+
 export const metadata: Metadata = {
   title: "SorcerySim — Sorcery: Contested Realm",
   description: "Card search, deck explorer, and match simulator for Sorcery: Contested Realm",
@@ -31,7 +37,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
   return (
     <html
       lang="en"
-      className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
+      className={`${geistSans.variable} ${geistMono.variable} ${cinzelDecorative.variable} h-full antialiased`}
     >
       <head>
         {/* Impact affiliate site verification */}
@@ -44,14 +50,35 @@ function AppShell({ children }: { children: React.ReactNode }) {
             <div className="flex items-center justify-between h-14">
               <Link
                 href="/"
-                className="hover:opacity-80 transition-opacity"
+                className="flex items-center gap-2.5 hover:opacity-80 transition-opacity"
               >
-                <img
-                  src="/logo-sorcerysim.svg"
-                  alt="SorcerySim"
-                  height={36}
-                  className="h-9 w-auto"
-                />
+                {/* Four elemental symbols — inline so the font loads correctly */}
+                <svg width="32" height="32" viewBox="0 0 56 56" fill="none" xmlns="http://www.w3.org/2000/svg">
+                  {/* Air — upward △ + crossbar, purple */}
+                  <g transform="translate(14,14)" stroke="#a78bfa" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M0,-11 L-9.5,5.5 L9.5,5.5Z"/>
+                    <line x1="-4.8" y1="-2.5" x2="4.8" y2="-2.5"/>
+                  </g>
+                  {/* Earth — downward △ + crossbar, gold */}
+                  <g transform="translate(42,14)" stroke="#d4a017" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M0,11 L-9.5,-5.5 L9.5,-5.5Z"/>
+                    <line x1="-4.8" y1="2.5" x2="4.8" y2="2.5"/>
+                  </g>
+                  {/* Fire — upward △, orange */}
+                  <g transform="translate(14,42)" stroke="#f97316" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M0,-11 L-9.5,5.5 L9.5,5.5Z"/>
+                  </g>
+                  {/* Water — downward △, cyan */}
+                  <g transform="translate(42,42)" stroke="#38bdf8" strokeWidth="2.4" strokeLinecap="round" strokeLinejoin="round">
+                    <path d="M0,11 L-9.5,-5.5 L9.5,-5.5Z"/>
+                  </g>
+                </svg>
+                <span
+                  className="text-amber-400 text-xl tracking-wide"
+                  style={{ fontFamily: "var(--font-cinzel)", fontWeight: 700 }}
+                >
+                  SorcerySim
+                </span>
               </Link>
               <div className="flex items-center gap-1">
                 <Link
