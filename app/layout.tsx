@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Cinzel_Decorative } from "next/font/google";
 import Link from "next/link";
 import { ClerkProvider } from "@clerk/nextjs";
-import { currentUser } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import { Analytics } from "@vercel/analytics/next";
 import { NavAuth } from "@/components/NavAuth";
 import { FeedbackProvider } from "@/app/components/FeedbackProvider";
@@ -35,15 +35,12 @@ export const metadata: Metadata = {
 // simply hidden until NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is added to the environment.
 const clerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
-// Renders the Google AdSense script unless the signed-in user is a subscriber.
-// The Stripe webhook (app/api/webhooks/stripe/route.ts) sets
-// publicMetadata.isSubscriber on the Clerk user when a subscription is created
-// or cancelled.
+// Renders the Google AdSense script unless the signed-in user has an active
+// Clerk Billing subscription (Clerk + Stripe connected).
 async function ConditionalAds() {
   if (clerkConfigured) {
-    const user = await currentUser();
-    const meta = user?.publicMetadata as { isSubscriber?: boolean } | undefined;
-    if (meta?.isSubscriber) return null;
+    const { has } = await auth();
+    if (has({ plan: "user:monthly" })) return null;
   }
   return (
     <script
