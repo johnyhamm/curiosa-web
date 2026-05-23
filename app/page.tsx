@@ -54,7 +54,7 @@ export default function Home() {
         <p className="text-xl text-gray-400 max-w-2xl mx-auto">
           An unofficial simulator for{" "}
           <a
-            href="https://curiosa.io"
+            href="https://sorcerytcg.com"
             target="_blank"
             rel="noopener noreferrer"
             className="text-amber-500 hover:text-amber-400 transition-colors"
