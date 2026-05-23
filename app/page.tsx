@@ -119,6 +119,7 @@ export default function Home() {
             { label: "Discord",            href: "https://discord.gg/beEMKYRz",     icon: "💬" },
             { label: "TCGplayer",          href: "https://tcgplayer.com",           icon: "🛒" },
             { label: "Team Covenant",      href: "https://teamcovenant.com",        icon: "⚔️" },
+            { label: "Facebook Community", href: "https://www.facebook.com/share/g/1BsFJ16Re3/", icon: "👥" },
           ].map(({ label, href, icon }) => (
             <a
               key={href}
