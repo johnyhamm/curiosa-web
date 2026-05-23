@@ -13,7 +13,7 @@ const features = [
     title: "Deck Builder",
     icon: "🔨",
     description:
-      "Build a deck from scratch with full rules enforcement — 60-card Spellbook, 30-card Atlas, rarity copy limits. Test it instantly against any public deck.",
+      "Build a deck from scratch and test it instantly against any public deck.",
     cta: "Build a Deck",
     color: "from-amber-900/40 to-amber-800/20",
     border: "border-amber-700/40",
