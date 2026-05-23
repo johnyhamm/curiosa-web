@@ -3,6 +3,8 @@ import { Geist, Geist_Mono } from "next/font/google";
 import Link from "next/link";
 import { ClerkProvider } from "@clerk/nextjs";
 import { NavAuth } from "@/components/NavAuth";
+import { FeedbackProvider } from "@/app/components/FeedbackProvider";
+import { FeedbackNavButton } from "@/app/components/FeedbackNavButton";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -32,6 +34,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
       <body className="min-h-full flex flex-col bg-gray-950 text-white">
+      <FeedbackProvider>
         <nav className="bg-gray-900 border-b border-gray-800 sticky top-0 z-50">
           <div className="max-w-6xl mx-auto px-4 sm:px-6">
             <div className="flex items-center justify-between h-14">
@@ -78,6 +81,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 >
                   Builder
                 </Link>
+                <FeedbackNavButton />
                 <NavAuth />
               </div>
             </div>
@@ -95,6 +99,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
             curiosa.io
           </a>
         </footer>
+      </FeedbackProvider>
       </body>
     </html>
   );
