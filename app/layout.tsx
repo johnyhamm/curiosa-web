@@ -6,6 +6,7 @@ import { auth } from "@clerk/nextjs/server";
 import { Analytics } from "@vercel/analytics/next";
 import { NavAuth } from "@/components/NavAuth";
 import { NavSubscribeButton } from "@/components/NavSubscribeButton";
+import { MobileNav } from "@/components/MobileNav";
 import { FeedbackProvider } from "@/app/components/FeedbackProvider";
 import { FeedbackNavButton } from "@/app/components/FeedbackNavButton";
 import "./globals.css";
@@ -101,7 +102,8 @@ function AppShell({ children }: { children: React.ReactNode }) {
                   SorcerySim
                 </span>
               </Link>
-              <div className="flex items-center gap-1">
+              {/* Desktop nav — hidden on mobile */}
+              <div className="hidden md:flex items-center gap-1">
                 <NavSubscribeButton />
                 <Link
                   href="/"
@@ -142,6 +144,9 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 <FeedbackNavButton />
                 <NavAuth />
               </div>
+
+              {/* Mobile nav — hamburger menu */}
+              <MobileNav />
             </div>
           </div>
         </nav>
