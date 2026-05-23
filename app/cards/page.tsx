@@ -41,10 +41,10 @@ function CardCard({ card }: { card: Card }) {
     .join(" ");
 
   return (
-    <div className="flex items-start gap-4">
+    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "minmax(0, 1fr) 200px" }}>
 
       {/* ── Card details ── */}
-      <div className="flex-1 bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-2 min-w-0 hover:border-gray-700 transition-colors">
+      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-2 hover:border-gray-700 transition-colors">
         <div className="flex items-start justify-between gap-2">
           <h3 className="font-bold text-white text-lg leading-tight">{card.name}</h3>
           <span className={`text-xs font-semibold shrink-0 ${rarityColor(g.rarity)}`}>
@@ -96,7 +96,7 @@ function CardCard({ card }: { card: Card }) {
 
       {/* ── Card image — separate container ── */}
       {imgUrl && (
-        <div className="shrink-0 w-48 sm:w-56">
+        <div className="w-full">
           <img
             src={imgUrl}
             alt={card.name}
