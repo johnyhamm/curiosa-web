@@ -35,6 +35,7 @@ function rarityColor(rarity: string | null | undefined): string {
 function CardCard({ card }: { card: Card }) {
   const g = card.guardian;
   const imgUrl = cardImageUrl(card.name);
+  const isSite = g.type === "Site";
   const thresholds = Object.entries(g.thresholds ?? {})
     .filter(([, v]) => v > 0)
     .map(([k, v]) => `${k ? k[0].toUpperCase() : "?"}${v}`)
@@ -97,13 +98,39 @@ function CardCard({ card }: { card: Card }) {
       {/* ── Card image — separate container ── */}
       {imgUrl && (
         <div className="w-full">
-          <img
-            src={imgUrl}
-            alt={card.name}
-            className="w-full h-auto rounded-lg shadow-lg shadow-black/50"
-            loading="lazy"
-            onError={(e) => { e.currentTarget.parentElement!.style.display = "none"; }}
-          />
+          {isSite ? (
+            // Site cards are landscape — rotate 90° clockwise so text reads horizontally
+            <div
+              className="relative overflow-hidden rounded-lg shadow-lg shadow-black/50"
+              style={{ aspectRatio: "63 / 88" }}
+              onError={() => {}}
+            >
+              <img
+                src={imgUrl}
+                alt={card.name}
+                style={{
+                  position: "absolute",
+                  top: "50%",
+                  left: "50%",
+                  width: "140%",
+                  height: "140%",
+                  objectFit: "cover",
+                  objectPosition: "center",
+                  transform: "translate(-50%, -50%) rotate(90deg)",
+                }}
+                loading="lazy"
+                onError={(e) => { e.currentTarget.parentElement!.style.display = "none"; }}
+              />
+            </div>
+          ) : (
+            <img
+              src={imgUrl}
+              alt={card.name}
+              className="w-full h-auto rounded-lg shadow-lg shadow-black/50 block"
+              loading="lazy"
+              onError={(e) => { e.currentTarget.parentElement!.style.display = "none"; }}
+            />
+          )}
         </div>
       )}
 
