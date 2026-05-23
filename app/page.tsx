@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { CardOfTheDay } from "@/app/components/CardOfTheDay";
+import { NewsSection } from "@/app/components/NewsSection";
 
 // Regenerate the home page at most every hour so the card-of-the-day
 // stays current without rebuilding on every request.
@@ -72,6 +73,13 @@ export default function Home() {
       >
         <div className="mb-12">
           <CardOfTheDay />
+        </div>
+      </Suspense>
+
+      {/* News */}
+      <Suspense fallback={null}>
+        <div className="mb-12">
+          <NewsSection />
         </div>
       </Suspense>
 
