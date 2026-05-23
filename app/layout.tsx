@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { Geist, Geist_Mono, Cinzel_Decorative } from "next/font/google";
 import Link from "next/link";
 import { ClerkProvider } from "@clerk/nextjs";
-import { currentUser } from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import { NavAuth } from "@/components/NavAuth";
 import { FeedbackProvider } from "@/app/components/FeedbackProvider";
 import { FeedbackNavButton } from "@/app/components/FeedbackNavButton";
@@ -34,13 +34,15 @@ export const metadata: Metadata = {
 // simply hidden until NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is added to the environment.
 const clerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
-// Renders the Google AdSense script unless the signed-in user is a subscriber.
-// Set publicMetadata.isSubscriber = true on a Clerk user to suppress ads for them.
+// Renders the Google AdSense script unless the signed-in user has an active
+// Clerk Billing subscription. Replace SUBSCRIBER_PLAN_SLUG with the slug of
+// your plan from the Clerk Dashboard (e.g. "pro", "subscriber", etc.).
+const SUBSCRIBER_PLAN_SLUG = process.env.CLERK_SUBSCRIBER_PLAN_SLUG ?? "subscriber";
+
 async function ConditionalAds() {
   if (clerkConfigured) {
-    const user = await currentUser();
-    const meta = user?.publicMetadata as { isSubscriber?: boolean } | undefined;
-    if (meta?.isSubscriber) return null;
+    const { has } = await auth();
+    if (has({ plan: `user:${SUBSCRIBER_PLAN_SLUG}` })) return null;
   }
   return (
     <script
