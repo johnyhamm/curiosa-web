@@ -42,7 +42,7 @@ function CardCard({ card }: { card: Card }) {
     .join(" ");
 
   return (
-    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: `minmax(0, 1fr) ${isSite && imgUrl ? "280px" : "200px"}` }}>
+    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "minmax(0, 1fr) 280px" }}>
 
       {/* ── Card details ── */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-2 hover:border-gray-700 transition-colors">
@@ -129,7 +129,8 @@ function CardCard({ card }: { card: Card }) {
             <img
               src={imgUrl}
               alt={card.name}
-              className="w-full h-auto rounded-lg shadow-lg shadow-black/50 block"
+              className="h-auto rounded-lg shadow-lg shadow-black/50 block"
+              style={{ width: "200px" }}
               loading="lazy"
               onError={(e) => { e.currentTarget.parentElement!.style.display = "none"; }}
             />
