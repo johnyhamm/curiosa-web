@@ -33,6 +33,10 @@ function AppShell({ children }: { children: React.ReactNode }) {
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
     >
+      <head>
+        {/* Impact affiliate site verification */}
+        <meta name="impact-site-verification" value="a1f044c4-92d5-4a24-a3a3-791a56991846" />
+      </head>
       <body className="min-h-full flex flex-col bg-gray-950 text-white">
       <FeedbackProvider>
         <nav className="bg-gray-900 border-b border-gray-800 sticky top-0 z-50">
@@ -40,19 +44,14 @@ function AppShell({ children }: { children: React.ReactNode }) {
             <div className="flex items-center justify-between h-14">
               <Link
                 href="/"
-                className="flex items-center gap-2 hover:opacity-90 transition-opacity"
+                className="hover:opacity-80 transition-opacity"
               >
-                {/* Philosopher's Stone card art */}
                 <img
-                  src="/api/card-image?id=1wqDYgPPy3kQCiux4Q5Kl6dwBUX0wtWx3&sz=w64"
-                  alt="Philosopher's Stone"
-                  width={28}
-                  height={28}
-                  className="rounded-full object-cover object-top w-7 h-7 ring-1 ring-amber-500/40"
+                  src="/logo-sorcerysim.svg"
+                  alt="SorcerySim"
+                  height={36}
+                  className="h-9 w-auto"
                 />
-                <span className="text-amber-400 font-bold text-xl tracking-tight hover:text-amber-300 transition-colors">
-                  SorcerySim
-                </span>
               </Link>
               <div className="flex items-center gap-1">
                 <Link

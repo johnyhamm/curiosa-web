@@ -23,8 +23,9 @@ function Cell({ sq }: { sq: SquareState }) {
   const sickMark = minion?.sick ? " 💤" : "";
 
   // Card art: minion takes priority over site art
-  const artName  = minion?.name ?? sq.siteName;
-  const imgUrl   = artName ? cardImageUrl(artName) : null;
+  const artName    = minion?.name ?? sq.siteName;
+  const imgUrl     = artName ? cardImageUrl(artName) : null;
+  const isSiteOnly = !!sq.siteName && !minion;
 
   // Owner colour used for stats bar
   const ownerAccent = minion?.owner === "A"
@@ -38,7 +39,32 @@ function Cell({ sq }: { sq: SquareState }) {
       style={{ height: "96px" }}
     >
       {/* ── Card art ─────────────────────────────────────────── */}
-      {imgUrl && (
+      {imgUrl && isSiteOnly && (
+        // Site cards are landscape — rotate –90° so the card text reads horizontally
+        <div className="absolute inset-0 overflow-hidden">
+          <img
+            src={imgUrl}
+            alt={artName ?? ""}
+            draggable={false}
+            style={{
+              position: "absolute",
+              top: "50%",
+              left: "50%",
+              // swap w/h so the rotated image fills the cell edge-to-edge
+              width: "160%",
+              height: "160%",
+              maxWidth: "none",
+              maxHeight: "none",
+              objectFit: "cover",
+              objectPosition: "center center",
+              transform: "translate(-50%, -50%) rotate(90deg)",
+              opacity: 0.95,
+            }}
+            onError={(e) => { e.currentTarget.style.display = "none"; }}
+          />
+        </div>
+      )}
+      {imgUrl && !isSiteOnly && (
         <img
           src={imgUrl}
           alt={artName ?? ""}
