@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { Suspense } from "react";
 import { CardOfTheDay } from "@/app/components/CardOfTheDay";
+import { CodexTipOfTheDay } from "@/app/components/CodexTipOfTheDay";
 import { NewsSection } from "@/app/components/NewsSection";
 import { HomeSearch } from "@/app/components/HomeSearch";
 
@@ -209,14 +210,18 @@ export default function Home() {
       {/* Search */}
       <HomeSearch />
 
-      {/* Card of the Day */}
+      {/* Card of the Day + Codex Tip — side by side */}
       <Suspense
         fallback={
-          <div className="rounded-2xl border border-amber-700/20 bg-gray-900 h-64 animate-pulse mb-12" />
+          <div className="grid lg:grid-cols-2 gap-4 mb-12">
+            <div className="rounded-2xl border border-amber-700/20 bg-gray-900 h-64 animate-pulse" />
+            <div className="rounded-2xl border border-violet-700/20 bg-gray-900 h-64 animate-pulse" />
+          </div>
         }
       >
-        <div className="mb-12">
+        <div className="grid lg:grid-cols-2 gap-4 mb-12">
           <CardOfTheDay />
+          <CodexTipOfTheDay />
         </div>
       </Suspense>
 
