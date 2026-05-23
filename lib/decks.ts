@@ -54,6 +54,33 @@ let deckIndexBuilding = false;
  */
 const avatarCardIdCache = new Map<string, string>();
 
+// ─── Per-deck fetch cache ──────────────────────────────────────────────────────
+//
+// Caches individual deck fetches for DECK_CACHE_TTL_MS so repeated simulations
+// of the same popular deck don't hammer curiosa.io. The cache lives for the
+// lifetime of the server process (Vercel function warm instance).
+
+const DECK_CACHE_TTL_MS = 4 * 60 * 60 * 1000; // 4 hours
+
+type DeckApiResult = {
+  decklist: import("./simulator.js").ApiDeckCard[];
+  avatar: import("./simulator.js").ApiDeckCard | null;
+  meta: {
+    name?: string;
+    format?: string;
+    visibility?: string;
+    user?: { username?: string };
+    _count?: { likes?: number; views?: number };
+  } | null;
+};
+
+interface CachedDeck {
+  data: DeckApiResult;
+  fetchedAt: number;
+}
+
+const deckCache = new Map<string, CachedDeck>();
+
 // ─── Deck API helpers ─────────────────────────────────────────────────────────
 
 export function extractDeckId(input: string): string {
@@ -64,17 +91,13 @@ export function extractDeckId(input: string): string {
   return input.trim();
 }
 
-export async function fetchDeckFromApi(deckId: string): Promise<{
-  decklist: import("./simulator.js").ApiDeckCard[];
-  avatar: import("./simulator.js").ApiDeckCard | null;
-  meta: {
-    name?: string;
-    format?: string;
-    visibility?: string;
-    user?: { username?: string };
-    _count?: { likes?: number; views?: number };
-  } | null;
-}> {
+export async function fetchDeckFromApi(deckId: string): Promise<DeckApiResult> {
+  // Return cached data if still fresh
+  const cached = deckCache.get(deckId);
+  if (cached && Date.now() - cached.fetchedAt < DECK_CACHE_TTL_MS) {
+    return cached.data;
+  }
+
   const input = encodeURIComponent(
     JSON.stringify({
       "0": { json: { id: deckId } },
@@ -98,15 +121,11 @@ export async function fetchDeckFromApi(deckId: string): Promise<{
 
   const decklist = results[0]?.result?.data?.json as import("./simulator.js").ApiDeckCard[] ?? [];
   const avatar   = results[1]?.result?.data?.json as import("./simulator.js").ApiDeckCard | null;
-  const meta     = results[2]?.result?.data?.json as {
-    name?: string;
-    format?: string;
-    visibility?: string;
-    user?: { username?: string };
-    _count?: { likes?: number; views?: number };
-  } | null;
+  const meta     = results[2]?.result?.data?.json as DeckApiResult["meta"];
 
-  return { decklist, avatar, meta };
+  const data: DeckApiResult = { decklist, avatar, meta };
+  deckCache.set(deckId, { data, fetchedAt: Date.now() });
+  return data;
 }
 
 /**

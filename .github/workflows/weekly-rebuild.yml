@@ -1,0 +1,26 @@
+name: Weekly rebuild
+
+# Triggers a Vercel production deploy every Sunday at 3 AM UTC.
+# This refreshes the baked-in deck index (public/deck-index.json) once a week
+# without hitting curiosa.io more often than necessary.
+#
+# Setup (one-time):
+#   1. In Vercel → your project → Settings → Git → Deploy Hooks
+#      create a hook named "weekly-rebuild" targeting the main branch.
+#   2. Copy the generated URL.
+#   3. In GitHub → your repo → Settings → Secrets and variables → Actions
+#      add a secret named VERCEL_DEPLOY_HOOK_URL and paste the URL.
+
+on:
+  schedule:
+    - cron: "0 3 * * 0"   # Every Sunday at 03:00 UTC
+  workflow_dispatch:        # Also allows a manual trigger from the Actions tab
+
+jobs:
+  redeploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Trigger Vercel deploy hook
+        run: |
+          curl --silent --show-error --fail -X POST \
+            "${{ secrets.VERCEL_DEPLOY_HOOK_URL }}"
