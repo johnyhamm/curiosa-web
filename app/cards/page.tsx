@@ -41,7 +41,7 @@ function CardCard({ card }: { card: Card }) {
     .join(" ");
 
   return (
-    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "minmax(0, 1fr) 100px" }}>
+    <div className="grid gap-4 items-start" style={{ gridTemplateColumns: "minmax(0, 1fr) 200px" }}>
 
       {/* ── Card details ── */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-2 hover:border-gray-700 transition-colors">
@@ -237,7 +237,7 @@ function CardsPageContent() {
               ? "No cards found."
               : `Showing ${results.length} card${results.length !== 1 ? "s" : ""}`}
           </p>
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 max-w-3xl">
             {results.map((card) => (
               <CardCard key={card.name} card={card} />
             ))}
