@@ -96,13 +96,11 @@ function CardCard({ card }: { card: Card }) {
 
       {/* ── Card image (right) ── */}
       {imgUrl && (
-        <div className="shrink-0 w-24 sm:w-28 bg-gray-950">
+        <div className="shrink-0 w-24 sm:w-28 bg-gray-950 relative overflow-hidden">
           <img
             src={imgUrl}
             alt={card.name}
-            width={112}
-            height={157}
-            className="w-full h-full object-cover object-top"
+            className="absolute inset-0 w-full h-full object-cover object-top"
             loading="lazy"
             onError={(e) => { e.currentTarget.parentElement!.style.display = "none"; }}
           />
