@@ -3,6 +3,7 @@ import { fetchDeckFromApi, extractDeckId } from "@/lib/decks";
 import { loadCards } from "@/lib/cards";
 import { toSimCards, runSimulation } from "@/lib/simulator";
 import type { ApiDeckCard } from "@/lib/simulator";
+import { trackSimRun } from "@/lib/redis";
 
 export const dynamic = "force-dynamic";
 
@@ -88,6 +89,10 @@ export async function POST(request: NextRequest) {
     }
 
     const report = runSimulation(specA, specB, iterations);
+
+    // Fire-and-forget — don't let tracking failure block the response
+    trackSimRun().catch(() => {});
+
     return NextResponse.json(report);
   } catch (err) {
     return NextResponse.json({ error: String(err) }, { status: 500 });
