@@ -1362,6 +1362,7 @@ interface PlayerState {
   sitesPlaced:     number;
   minionsDeployed: number;
   siteAttacks:     number;
+  spellsCast:      number;
   // Cemetery — cards that have left the game this match
   deadMinions: SimCard[];
   deadSpells:  SimCard[];
@@ -1419,6 +1420,7 @@ function initPlayer(spec: DeckSpec, id: "A" | "B"): PlayerState {
     sitesPlaced:     0,
     minionsDeployed: 0,
     siteAttacks:     0,
+    spellsCast:      0,
     deadMinions:     [],
     deadSpells:      [],
     deploymentSquares:      [],
@@ -1589,16 +1591,21 @@ export interface GameResult {
   sitesA: number;  sitesB: number;
   minionsA: number; minionsB: number;
   siteAtksA: number; siteAtksB: number;
+  spellsA: number; spellsB: number;
+  /** Which player took the first turn in this game. */
+  firstPlayer: "A" | "B";
 }
 
 const MAX_TURNS = 50;
 
 // ─── Main game simulation ─────────────────────────────────────────────────────
 
-export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false): GameResult {
+export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false, firstPlayer: "A" | "B" = "A"): GameResult {
   const grid     = makeGrid();
   const pA       = initPlayer(specA, "A");
   const pB       = initPlayer(specB, "B");
+  // Swap player references when B goes first so the turn loop is unchanged
+  const [fp, sp] = firstPlayer === "A" ? [pA, pB] : [pB, pA];
   const minions: BoardMinion[]  = [];
   const artifacts: BoardArtifact[] = [];
   const auras: BoardAura[]     = [];
@@ -3287,6 +3294,7 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
         const fx = card.spellEffect ?? parseSpellEffect(card.rulesText);
         resolveSpellEffect(active, opp, fx, cost, card.name);
         active.deadSpells.push(card);
+        active.spellsCast++;
 
         // Enchantress: after casting a spell, animate the cheapest aura in hand as a temporary minion
         for (const ab of active.avatarCard.avatarAbilities ?? []) {
@@ -3839,8 +3847,8 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
 
   while (turn < MAX_TURNS && pA.avatarLife > 0 && pB.avatarLife > 0 && !pA.deckOutPending && !pB.deckOutPending) {
     turn++;
-    const active  = turn % 2 === 1 ? pA : pB;
-    const passive = turn % 2 === 1 ? pB : pA;
+    const active  = turn % 2 === 1 ? fp : sp;
+    const passive = turn % 2 === 1 ? sp : fp;
 
     // Untap / clear flags
     for (const m of friendlyMinions(active.id)) {
@@ -4113,6 +4121,8 @@ export function simulateGame(specA: DeckSpec, specB: DeckSpec, keepLog = false):
     sitesA: pA.sitesPlaced,   sitesB: pB.sitesPlaced,
     minionsA: pA.minionsDeployed, minionsB: pB.minionsDeployed,
     siteAtksA: pA.siteAttacks, siteAtksB: pB.siteAttacks,
+    spellsA: pA.spellsCast,   spellsB: pB.spellsCast,
+    firstPlayer,
   };
 }
 
@@ -4138,6 +4148,11 @@ export interface SimulationReport {
   avgMinionsB:     string;
   avgSiteAttacksA: string;
   avgSiteAttacksB: string;
+  avgSpellsA:      string;
+  avgSpellsB:      string;
+  /** Win rate when the deck took the first turn. */
+  firstPlayerWinRateA: string;
+  firstPlayerWinRateB: string;
   sampleGame:      GameResult;
 }
 
@@ -4147,10 +4162,16 @@ export function runSimulation(specA: DeckSpec, specB: DeckSpec, iterations: numb
   let totalSitesA = 0, totalSitesB = 0;
   let totalMinionsA = 0, totalMinionsB = 0;
   let totalSiteAtksA = 0, totalSiteAtksB = 0;
+  let totalSpellsA = 0, totalSpellsB = 0;
+  // First-player win tracking: half the games A goes first, half B goes first
+  let winsA_asFirst = 0, gamesA_asFirst = 0;
+  let winsB_asFirst = 0, gamesB_asFirst = 0;
   let sampleGame: GameResult | null = null;
 
   for (let i = 0; i < iterations; i++) {
-    const r = simulateGame(specA, specB, i === 0);
+    // Alternate who goes first so results aren't biased
+    const firstPlayer: "A" | "B" = i % 2 === 0 ? "A" : "B";
+    const r = simulateGame(specA, specB, i === 0, firstPlayer);
     if      (r.winner === "A") winsA++;
     else if (r.winner === "B") winsB++;
     else                       draws++;
@@ -4159,11 +4180,22 @@ export function runSimulation(specA: DeckSpec, specB: DeckSpec, iterations: numb
     totalSitesA    += r.sitesA;      totalSitesB    += r.sitesB;
     totalMinionsA  += r.minionsA;    totalMinionsB  += r.minionsB;
     totalSiteAtksA += r.siteAtksA;   totalSiteAtksB += r.siteAtksB;
+    totalSpellsA   += r.spellsA;     totalSpellsB   += r.spellsB;
+    // First-player win rate
+    if (firstPlayer === "A") {
+      gamesA_asFirst++;
+      if (r.winner === "A") winsA_asFirst++;
+    } else {
+      gamesB_asFirst++;
+      if (r.winner === "B") winsB_asFirst++;
+    }
     if (i === 0) sampleGame = r;
   }
 
   const pct = (n: number) => ((n / iterations) * 100).toFixed(1) + "%";
   const avg = (n: number) => (n / iterations).toFixed(1);
+  const pctOf = (n: number, total: number) =>
+    total > 0 ? ((n / total) * 100).toFixed(1) + "%" : "0.0%";
 
   return {
     deckAName: specA.name, deckBName: specB.name,
@@ -4175,6 +4207,9 @@ export function runSimulation(specA: DeckSpec, specB: DeckSpec, iterations: numb
     avgSitesA:     avg(totalSitesA),  avgSitesB:     avg(totalSitesB),
     avgMinionsA:   avg(totalMinionsA),avgMinionsB:   avg(totalMinionsB),
     avgSiteAttacksA: avg(totalSiteAtksA), avgSiteAttacksB: avg(totalSiteAtksB),
+    avgSpellsA:    avg(totalSpellsA), avgSpellsB:    avg(totalSpellsB),
+    firstPlayerWinRateA: pctOf(winsA_asFirst, gamesA_asFirst),
+    firstPlayerWinRateB: pctOf(winsB_asFirst, gamesB_asFirst),
     sampleGame: sampleGame!,
   };
 }

@@ -155,6 +155,54 @@ function buildFactors(r: SimulationReport, leader: "A" | "B" | null): Factor[] {
     });
   }
 
+  // ── Spell usage ──────────────────────────────────────────────────────────────
+  const spellsA = parseFloat(r.avgSpellsA);
+  const spellsB = parseFloat(r.avgSpellsB);
+  const spellDiff = Math.abs(spellsA - spellsB);
+  if (spellDiff >= 1.0) {
+    const moreA  = spellsA > spellsB;
+    const more   = moreA ? r.deckAName : r.deckBName;
+    const fewer  = moreA ? r.deckBName : r.deckAName;
+    const moreS  = moreA ? spellsA : spellsB;
+    const fewerS = moreA ? spellsB : spellsA;
+    factors.push({
+      icon: "🪄",
+      label: "Spell advantage",
+      text: `${more} cast ${moreS.toFixed(1)} spells per game vs ${fewerS.toFixed(1)} for ${fewer}. More spells means more removal, card draw, and disruption — ${spellDiff.toFixed(1)} extra casts per game adds up to a significant tempo and resource edge over a full match.`,
+      side: moreA ? "A" : "B",
+    });
+  } else if (spellsA + spellsB > 4) {
+    factors.push({
+      icon: "🪄",
+      label: "Spell usage",
+      text: `Both decks cast a similar number of spells (${spellsA.toFixed(1)} vs ${spellsB.toFixed(1)} per game), so neither had a clear magic advantage. The outcome was decided more by minion combat and site control.`,
+      side: "even",
+    });
+  }
+
+  // ── First-player advantage ────────────────────────────────────────────────────
+  const fpA = parseFloat(r.firstPlayerWinRateA);
+  const fpB = parseFloat(r.firstPlayerWinRateB);
+  const fpDiff = Math.abs(fpA - fpB);
+  if (fpDiff >= 10) {
+    const benefitsA = fpA > fpB;
+    const beneficiary = benefitsA ? r.deckAName : r.deckBName;
+    const fpRate = benefitsA ? fpA : fpB;
+    factors.push({
+      icon: "🎯",
+      label: "First-mover advantage",
+      text: `${beneficiary} won ${fpRate.toFixed(1)}% of games when it went first — a significant edge. Going first lets you claim sites and deploy minions a full turn sooner, and this matchup punishes players who fall behind in the early land race.`,
+      side: benefitsA ? "A" : "B",
+    });
+  } else if (fpA > 0 && fpB > 0) {
+    factors.push({
+      icon: "🎯",
+      label: "Turn order",
+      text: `Neither deck benefited strongly from going first (${fpA.toFixed(1)}% vs ${fpB.toFixed(1)}% first-player win rates). The matchup plays out similarly regardless of who takes the opening move.`,
+      side: "even",
+    });
+  }
+
   return factors;
 }
 
@@ -236,11 +284,13 @@ export function MatchExplanation({ report, leader }: Props) {
           <span className="text-xs font-semibold text-sky-400 truncate max-w-[40%] text-right">{report.deckBName}</span>
         </div>
         <div className="flex flex-col gap-2">
-          <StatRow label="sites placed"      valA={report.avgSitesA}       valB={report.avgSitesB} />
-          <StatRow label="minions deployed"  valA={report.avgMinionsA}     valB={report.avgMinionsB} />
-          <StatRow label="site attacks"      valA={report.avgSiteAttacksA} valB={report.avgSiteAttacksB} />
-          <StatRow label="life remaining"    valA={report.avgFinalLifeA}   valB={report.avgFinalLifeB} />
-          <StatRow label="turns (both)"      valA={report.avgTurns}        valB={report.avgTurns} higherIsBetter={false} />
+          <StatRow label="sites placed"        valA={report.avgSitesA}            valB={report.avgSitesB} />
+          <StatRow label="minions deployed"    valA={report.avgMinionsA}          valB={report.avgMinionsB} />
+          <StatRow label="spells cast"         valA={report.avgSpellsA}           valB={report.avgSpellsB} />
+          <StatRow label="site attacks"        valA={report.avgSiteAttacksA}      valB={report.avgSiteAttacksB} />
+          <StatRow label="life remaining"      valA={report.avgFinalLifeA}        valB={report.avgFinalLifeB} />
+          <StatRow label="win rate going first" valA={report.firstPlayerWinRateA} valB={report.firstPlayerWinRateB} />
+          <StatRow label="turns (both)"        valA={report.avgTurns}             valB={report.avgTurns} higherIsBetter={false} />
         </div>
       </div>
     </div>
