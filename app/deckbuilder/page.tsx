@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import type { Card } from "@/lib/cards";
 import type { ApiDeckCard, SimulationReport } from "@/lib/simulator";
 import type { SavedBuilderDeck, SlimEntry } from "@/lib/builder-deck";
+import type { CollectionMap } from "@/lib/collection";
 import { DeckPicker } from "@/app/simulate/DeckPicker";
 import { useAuthSafe } from "@/lib/useAuthSafe";
 
@@ -103,12 +104,14 @@ function ThresholdPips({ th }: { th: Card["guardian"]["thresholds"] | undefined 
 function CardResultRow({
   card,
   qty,
+  owned,
   onAdd,
   onSetAvatar,
   isCurrentAvatar,
 }: {
   card: Card;
   qty: number;
+  owned?: number;
   onAdd: () => void;
   onSetAvatar: () => void;
   isCurrentAvatar: boolean;
@@ -128,6 +131,11 @@ function CardResultRow({
           {card.guardian.rarity && (
             <span className={`text-xs ${rarityClass(card.guardian.rarity)}`}>
               {card.guardian.rarity}
+            </span>
+          )}
+          {owned != null && owned > 0 && (
+            <span className="text-xs bg-amber-500/20 text-amber-400 border border-amber-500/30 px-1.5 py-0.5 rounded-full font-semibold">
+              own ×{owned}
             </span>
           )}
         </div>
@@ -504,6 +512,10 @@ export default function DeckBuilderPage() {
   const [hasSearched, setHasSearched] = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  // Collection state
+  const [collection, setCollection] = useState<CollectionMap>({});
+  const [collectionOnly, setCollectionOnly] = useState(false);
+
   // Sim state
   const [opponentId, setOpponentId] = useState("");
   const [simIterations, setSimIterations] = useState(300);
@@ -550,6 +562,16 @@ export default function DeckBuilderPage() {
     fetch("/api/user/builder-decks")
       .then((r) => (r.ok ? r.json() : []))
       .then((d) => setSavedDecks(d as SavedBuilderDeck[]))
+      .catch(console.error);
+  }, [isSignedIn]);
+
+  // ── Fetch collection when signed in ─────────────────────────────────────
+
+  useEffect(() => {
+    if (!isSignedIn) return;
+    fetch("/api/collection")
+      .then((r) => (r.ok ? r.json() : { collection: {} }))
+      .then((d) => setCollection((d as { collection: CollectionMap }).collection))
       .catch(console.error);
   }, [isSignedIn]);
 
@@ -655,18 +677,25 @@ export default function DeckBuilderPage() {
       setSearching(true);
       setHasSearched(true);
       try {
-        const p = new URLSearchParams({ limit: "30" });
+        const p = new URLSearchParams({ limit: "60" });
         if (q)             p.set("q", q);
         if (typeFilter)    p.set("type", typeFilter);
         if (elementFilter) p.set("element", elementFilter);
         const res = await fetch(`/api/cards/search?${p}`);
-        if (res.ok) setResults((await res.json()) as Card[]);
+        if (res.ok) {
+          const all = (await res.json()) as Card[];
+          // When collection-only mode is on, filter to owned cards
+          const filtered = collectionOnly
+            ? all.filter((c) => (collection[c.name.trim().toLowerCase()]?.qty ?? 0) > 0)
+            : all;
+          setResults(filtered);
+        }
       } catch { /* ignore */ }
       finally { setSearching(false); }
     }, 300);
 
     return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
-  }, [query, typeFilter, elementFilter]);
+  }, [query, typeFilter, elementFilter, collectionOnly, collection]);
 
   // ── Deck mutations ────────────────────────────────────────────────────────
 
@@ -815,6 +844,23 @@ export default function DeckBuilderPage() {
                   ))}
                 </select>
               </div>
+
+              {/* Collection toggle — only shown when signed in */}
+              {isSignedIn && (
+                <button
+                  onClick={() => setCollectionOnly((v) => !v)}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg border text-sm font-medium transition-colors ${
+                    collectionOnly
+                      ? "bg-amber-500/15 border-amber-500/50 text-amber-400"
+                      : "bg-gray-800 border-gray-700 text-gray-400 hover:text-white hover:border-gray-600"
+                  }`}
+                >
+                  <span>📦 My Collection only</span>
+                  <span className={`w-8 h-4 rounded-full transition-colors ${collectionOnly ? "bg-amber-500" : "bg-gray-600"} relative`}>
+                    <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${collectionOnly ? "left-4" : "left-0.5"}`} />
+                  </span>
+                </button>
+              )}
             </div>
 
             {/* Search results */}
@@ -835,6 +881,7 @@ export default function DeckBuilderPage() {
                   key={card.name}
                   card={card}
                   qty={getQty(card.name)}
+                  owned={collection[card.name.trim().toLowerCase()]?.qty}
                   onAdd={() => addCard(card)}
                   onSetAvatar={() => setAvatar(toApiCard(card))}
                   isCurrentAvatar={avatar?.name === card.name}
