@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useEffect, useRef, useCallback } from "react";
+import { useState, useEffect, useRef, useCallback, Suspense } from "react";
+import { useSearchParams } from "next/navigation";
 import type { Card } from "@/lib/cards";
 import type { ApiDeckCard, SimulationReport } from "@/lib/simulator";
 import type { SavedBuilderDeck, SlimEntry } from "@/lib/builder-deck";
@@ -529,14 +530,17 @@ function MiniSimResult({
 
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
-export default function DeckBuilderPage() {
+function DeckBuilderPageContent() {
   // Auth
   const { isSignedIn, isLoaded: authLoaded } = useAuthSafe();
+  const searchParams = useSearchParams();
 
   // Deck state
   const [deckName, setDeckName] = useState("My Deck");
   const [avatar, setAvatar] = useState<ApiCard | null>(null);
   const [entries, setEntries] = useState<DeckEntry[]>([]);
+  /** ID of the saved deck currently loaded in the editor (null = unsaved / new). */
+  const [currentDeckId, setCurrentDeckId] = useState<string | null>(null);
 
   // Search state
   const [query,          setQuery]          = useState("");
@@ -566,6 +570,8 @@ export default function DeckBuilderPage() {
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved" | "error">("idle");
   const [saveError, setSaveError] = useState<string | null>(null);
   const [loadingDeckId, setLoadingDeckId] = useState<string | null>(null);
+  /** ID of the deck the user has asked to delete (shows inline confirmation). */
+  const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
   // ── Persistence ───────────────────────────────────────────────────────────
 
@@ -577,21 +583,26 @@ export default function DeckBuilderPage() {
         name?: string;
         entries?: DeckEntry[];
         avatar?: ApiCard | null;
+        currentDeckId?: string | null;
       };
-      if (d.name)    setDeckName(d.name);
-      if (d.entries) setEntries(d.entries);
-      if (d.avatar)  setAvatar(d.avatar);
+      if (d.name)          setDeckName(d.name);
+      if (d.entries)       setEntries(d.entries);
+      if (d.avatar)        setAvatar(d.avatar);
+      if (d.currentDeckId) setCurrentDeckId(d.currentDeckId);
     } catch { /* ignore corrupt storage */ }
   }, []);
 
   useEffect(() => {
     const t = setTimeout(() => {
       try {
-        localStorage.setItem(STORAGE_KEY, JSON.stringify({ name: deckName, entries, avatar }));
+        localStorage.setItem(
+          STORAGE_KEY,
+          JSON.stringify({ name: deckName, entries, avatar, currentDeckId })
+        );
       } catch { /* quota exceeded */ }
     }, 500);
     return () => clearTimeout(t);
-  }, [deckName, entries, avatar]);
+  }, [deckName, entries, avatar, currentDeckId]);
 
   // ── Fetch saved decks when signed in ────────────────────────────────────
 
@@ -603,6 +614,22 @@ export default function DeckBuilderPage() {
       .catch(console.error);
   }, [isSignedIn]);
 
+  // ── Auto-load deck from ?load=<id> URL parameter ─────────────────────────
+  // Used by "Open in Builder" links on the Deck Explorer page.
+
+  const autoLoadRef = useRef(false);
+  useEffect(() => {
+    if (!isSignedIn || autoLoadRef.current || savedDecks.length === 0) return;
+    const loadId = searchParams.get("load");
+    if (!loadId) return;
+    const deck = savedDecks.find((d) => d.id === loadId);
+    if (deck) {
+      autoLoadRef.current = true;
+      loadSavedDeck(deck);
+    }
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isSignedIn, savedDecks]);
+
   // ── Fetch collection when signed in ─────────────────────────────────────
 
   useEffect(() => {
@@ -613,7 +640,9 @@ export default function DeckBuilderPage() {
       .catch(console.error);
   }, [isSignedIn]);
 
-  // ── Save current deck to account ────────────────────────────────────────
+  // ── Save / update current deck ───────────────────────────────────────────
+  // If currentDeckId is set, PUTs to update the existing saved deck.
+  // Otherwise, POSTs to create a new one and captures the returned ID.
 
   async function saveDeck() {
     setSaveStatus("saving");
@@ -625,20 +654,48 @@ export default function DeckBuilderPage() {
         e.rarity,
         e.apiCard.type ?? "Minion",
       ]);
-      const res = await fetch("/api/user/builder-decks", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          name: deckName,
-          avatarName: avatar?.name ?? null,
-          entries: slimEntries,
-        }),
-      });
-      if (!res.ok) {
-        const d = (await res.json()) as { error?: string };
-        throw new Error(d.error ?? `HTTP ${res.status}`);
+
+      if (currentDeckId) {
+        // ── Update existing ──
+        const res = await fetch("/api/user/builder-decks", {
+          method: "PUT",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            id: currentDeckId,
+            name: deckName,
+            avatarName: avatar?.name ?? null,
+            entries: slimEntries,
+          }),
+        });
+        if (res.status === 404) {
+          // Deck was deleted on the server — fall back to creating a new one
+          setCurrentDeckId(null);
+          throw new Error("Deck no longer exists. Please save again to create a new copy.");
+        }
+        if (!res.ok) {
+          const d = (await res.json()) as { error?: string };
+          throw new Error(d.error ?? `HTTP ${res.status}`);
+        }
+      } else {
+        // ── Create new ──
+        const res = await fetch("/api/user/builder-decks", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            name: deckName,
+            avatarName: avatar?.name ?? null,
+            entries: slimEntries,
+          }),
+        });
+        if (!res.ok) {
+          const d = (await res.json()) as { error?: string };
+          throw new Error(d.error ?? `HTTP ${res.status}`);
+        }
+        const saved = (await res.json()) as { id: string };
+        setCurrentDeckId(saved.id); // track the new deck going forward
       }
-      // Refresh the list
+
+      // Refresh the saved decks list
       const updated = await fetch("/api/user/builder-decks").then((r) =>
         r.ok ? r.json() : []
       );
@@ -679,6 +736,7 @@ export default function DeckBuilderPage() {
       setDeckName(deck.name);
       setEntries(newEntries);
       setAvatar(avatarCard ? toApiCard(avatarCard) : null);
+      setCurrentDeckId(deck.id);
       setSimReport(null);
       setSimError(null);
     } catch (e) {
@@ -802,6 +860,7 @@ export default function DeckBuilderPage() {
     setEntries([]);
     setAvatar(null);
     setDeckName("My Deck");
+    setCurrentDeckId(null);
     setSimReport(null);
     setSimError(null);
     try { localStorage.removeItem(STORAGE_KEY); } catch { /* ignore */ }
@@ -1031,11 +1090,13 @@ export default function DeckBuilderPage() {
                     }`}
                   >
                     {saveStatus === "saving"
-                      ? "Saving…"
+                      ? (currentDeckId ? "Updating…" : "Saving…")
                       : saveStatus === "saved"
                       ? "✓ Saved"
                       : saveStatus === "error"
                       ? "Save failed"
+                      : currentDeckId
+                      ? "Update"
                       : "Save"}
                   </button>
                 )}
@@ -1093,14 +1154,34 @@ export default function DeckBuilderPage() {
                         >
                           {isLoading ? "Loading…" : "Load"}
                         </button>
-                        <button
-                          type="button"
-                          onClick={() => deleteSavedDeck(deck.id)}
-                          className="text-xs text-gray-600 hover:text-red-400 transition-colors shrink-0"
-                          title="Delete saved deck"
-                        >
-                          ✕
-                        </button>
+                        {confirmDeleteId === deck.id ? (
+                          <span className="flex items-center gap-1.5 shrink-0">
+                            <span className="text-xs text-red-400">Delete?</span>
+                            <button
+                              type="button"
+                              onClick={() => { deleteSavedDeck(deck.id); setConfirmDeleteId(null); }}
+                              className="text-xs font-semibold text-red-400 hover:text-red-300 transition-colors"
+                            >
+                              Yes
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setConfirmDeleteId(null)}
+                              className="text-xs text-gray-500 hover:text-gray-300 transition-colors"
+                            >
+                              No
+                            </button>
+                          </span>
+                        ) : (
+                          <button
+                            type="button"
+                            onClick={() => setConfirmDeleteId(deck.id)}
+                            className="text-xs text-gray-600 hover:text-red-400 transition-colors shrink-0"
+                            title="Delete saved deck"
+                          >
+                            ✕
+                          </button>
+                        )}
                       </div>
                     );
                   })}
@@ -1241,5 +1322,13 @@ export default function DeckBuilderPage() {
         </div>
       </div>
     </div>
+  );
+}
+
+export default function DeckBuilderPage() {
+  return (
+    <Suspense fallback={<div className="max-w-6xl mx-auto px-4 py-10 text-gray-500">Loading…</div>}>
+      <DeckBuilderPageContent />
+    </Suspense>
   );
 }

@@ -238,7 +238,7 @@ function MyDecksSection({ decks }: { decks: SavedBuilderDeck[] }) {
                 <div className="text-xs text-gray-700 mt-0.5">Saved {savedDate}</div>
               </div>
               <a
-                href="/deckbuilder"
+                href={`/deckbuilder?load=${deck.id}`}
                 className="shrink-0 px-3 py-1.5 text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20
                   text-amber-400 border border-amber-500/20 rounded-lg transition-colors"
               >
