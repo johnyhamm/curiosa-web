@@ -127,37 +127,23 @@ function CardImage({ card }: { card: Card }) {
   );
 }
 
-// ─── Hover preview (fixed overlay, 2× thumbnail size) ────────────────────────
+// ─── Hover preview (docked to right margin, 2× thumbnail size) ───────────────
 
-function HoverPreview({ card, x, y }: { card: Card; x: number; y: number }) {
+function HoverPreview({ card }: { card: Card }) {
   const imgUrl = cardImageUrl(card.name);
   const isSite = card.guardian.type === "Site";
   const [failed, setFailed] = useState(false);
 
   if (!imgUrl || failed) return null;
 
-  const displayH = isSite ? HOVER_SITE_H : HOVER_H;
-  const vw = typeof window !== "undefined" ? window.innerWidth  : 1200;
-  const vh = typeof window !== "undefined" ? window.innerHeight : 800;
-  const MARGIN = 12;
-
-  // Prefer right of cursor; flip left if near right edge
-  let left = x + 24;
-  if (left + HOVER_W + MARGIN > vw) left = x - HOVER_W - 24;
-
-  // Centre vertically on cursor; clamp to viewport
-  let top = y - displayH / 2;
-  if (top < MARGIN) top = MARGIN;
-  if (top + displayH + MARGIN > vh) top = vh - displayH - MARGIN;
-
   return (
     <div
       className="fixed pointer-events-none z-[100]"
       style={{
-        left,
-        top,
-        filter: "drop-shadow(0 24px 48px rgba(0,0,0,0.85))",
-        transition: "opacity 0.1s",
+        right: 24,
+        top: "50%",
+        transform: "translateY(-50%)",
+        filter: "drop-shadow(0 24px 48px rgba(0,0,0,0.9))",
       }}
     >
       {isSite ? (
@@ -196,21 +182,19 @@ function HoverPreview({ card, x, y }: { card: Card; x: number; y: number }) {
 
 function CardTile({
   card, qty, onQtyChange,
-  onHoverStart, onHoverMove, onHoverEnd,
+  onHoverStart, onHoverEnd,
 }: {
   card: Card;
   qty: number;
   onQtyChange: (name: string, n: number) => void;
-  onHoverStart?: (card: Card, x: number, y: number) => void;
-  onHoverMove?:  (x: number, y: number) => void;
+  onHoverStart?: (card: Card) => void;
   onHoverEnd?:   () => void;
 }) {
   const rarity = card.guardian.rarity?.toLowerCase() ?? "";
   return (
     <div
       className="flex flex-col gap-2 items-center"
-      onMouseEnter={(e) => onHoverStart?.(card, e.clientX, e.clientY)}
-      onMouseMove={(e)  => onHoverMove?.(e.clientX, e.clientY)}
+      onMouseEnter={() => onHoverStart?.(card)}
       onMouseLeave={() => onHoverEnd?.()}
     >
       <div className="relative" style={{ width: CARD_W }}>
@@ -285,7 +269,6 @@ export default function CollectionPage() {
 
   // Hover preview
   const [hoveredCard, setHoveredCard] = useState<Card | null>(null);
-  const [hoverPos, setHoverPos]       = useState({ x: 0, y: 0 });
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimer   = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -503,8 +486,7 @@ export default function CollectionPage() {
                     card={card}
                     qty={collection[card.name.trim().toLowerCase()]?.qty ?? 0}
                     onQtyChange={handleQtyChange}
-                    onHoverStart={(c, x, y) => { setHoveredCard(c); setHoverPos({ x, y }); }}
-                    onHoverMove={(x, y)      => setHoverPos({ x, y })}
+                    onHoverStart={(c) => setHoveredCard(c)}
                     onHoverEnd={() => setHoveredCard(null)}
                   />
                 ))}
@@ -514,7 +496,7 @@ export default function CollectionPage() {
 
       {/* ── Hover preview ── */}
       {hoveredCard && (
-        <HoverPreview card={hoveredCard} x={hoverPos.x} y={hoverPos.y} />
+        <HoverPreview card={hoveredCard} />
       )}
 
       {/* ══ BROWSE & ADD ══ */}
@@ -654,8 +636,7 @@ export default function CollectionPage() {
                   card={card}
                   qty={collection[card.name.trim().toLowerCase()]?.qty ?? 0}
                   onQtyChange={handleQtyChange}
-                  onHoverStart={(c, x, y) => { setHoveredCard(c); setHoverPos({ x, y }); }}
-                  onHoverMove={(x, y)      => setHoverPos({ x, y })}
+                  onHoverStart={(c) => setHoveredCard(c)}
                   onHoverEnd={() => setHoveredCard(null)}
                 />
               ))}
