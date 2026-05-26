@@ -73,18 +73,24 @@ function Chip({
   );
 }
 
-// ─── Card image ───────────────────────────────────────────────────────────────
+// ─── Card image (parameterised width) ────────────────────────────────────────
 
-function CardImage({ card }: { card: Card }) {
+function CardImage({ card, w = CARD_W }: { card: Card; w?: number }) {
   const imgUrl = cardImageUrl(card.name);
   const isSite = card.guardian.type === "Site";
   const [failed, setFailed] = useState(false);
+
+  // Derived dimensions
+  const h   = Math.round(w * (88 / 63));   // portrait height
+  const sh  = Math.round(w * (63 / 88));   // landscape container height
+  const siw = sh;                           // inner portrait element width
+  const sih = w;                            // inner portrait element height
 
   if (!imgUrl || failed) {
     return (
       <div
         className="bg-gray-800 rounded-lg flex items-center justify-center text-gray-600 text-xs text-center px-2"
-        style={{ width: CARD_W, height: isSite ? SITE_H : CARD_H }}
+        style={{ width: w, height: isSite ? sh : h }}
       >
         No image
       </div>
@@ -95,7 +101,7 @@ function CardImage({ card }: { card: Card }) {
     return (
       <div
         className="relative overflow-hidden rounded-lg shadow-md shadow-black/40"
-        style={{ width: CARD_W, height: SITE_H }}
+        style={{ width: w, height: sh }}
       >
         <img
           src={imgUrl}
@@ -105,10 +111,10 @@ function CardImage({ card }: { card: Card }) {
           style={{
             position: "absolute",
             left: "50%", top: "50%",
-            width: SITE_IW, height: SITE_IH,
+            width: siw, height: sih,
             maxWidth: "none",
             objectFit: "cover",
-            transform: `translate(${-SITE_IW / 2}px, ${-SITE_IH / 2}px) rotate(90deg)`,
+            transform: `translate(${-siw / 2}px, ${-sih / 2}px) rotate(90deg)`,
           }}
         />
       </div>
@@ -122,7 +128,7 @@ function CardImage({ card }: { card: Card }) {
       onError={() => setFailed(true)}
       loading="lazy"
       className="rounded-lg shadow-md shadow-black/40 block"
-      style={{ width: CARD_W, height: CARD_H, objectFit: "cover" }}
+      style={{ width: w, height: h, objectFit: "cover" }}
     />
   );
 }
@@ -138,7 +144,7 @@ function HoverPreview({ card }: { card: Card }) {
 
   return (
     <div
-      className="fixed pointer-events-none z-[100]"
+      className="hidden sm:block fixed pointer-events-none z-[100]"
       style={{
         right: 24,
         top: "50%",
@@ -223,6 +229,8 @@ function BrowsePreview({ card }: { card: Card }) {
 
 // ─── Card tile ────────────────────────────────────────────────────────────────
 
+const MOBILE_W = 120; // card image width in mobile horizontal layout
+
 function CardTile({
   card, qty, onQtyChange,
   onHoverStart, onHoverEnd,
@@ -235,13 +243,24 @@ function CardTile({
 }) {
   const rarity = card.guardian.rarity?.toLowerCase() ?? "";
   return (
+    // Mobile: horizontal row (image left, info right), full width
+    // Desktop: vertical column (image top, info below), fixed width
     <div
-      className="flex flex-col gap-2 items-center"
+      className="flex flex-row items-start gap-3 w-full
+                 sm:flex-col sm:items-center sm:gap-2 sm:w-auto"
       onMouseEnter={() => onHoverStart?.(card)}
       onMouseLeave={() => onHoverEnd?.()}
     >
-      <div className="relative" style={{ width: CARD_W }}>
-        <CardImage card={card} />
+      {/* Image + qty badge */}
+      <div className="relative shrink-0">
+        {/* Mobile size */}
+        <div className="sm:hidden">
+          <CardImage card={card} w={MOBILE_W} />
+        </div>
+        {/* Desktop size */}
+        <div className="hidden sm:block">
+          <CardImage card={card} w={CARD_W} />
+        </div>
         {qty > 0 && (
           <div className="absolute top-1.5 right-1.5 bg-amber-500 text-gray-950 text-xs font-black px-1.5 py-0.5 rounded-full shadow-lg leading-none">
             ×{qty}
@@ -249,30 +268,37 @@ function CardTile({
         )}
       </div>
 
-      {/* Name + rarity */}
-      <div className="text-center" style={{ width: CARD_W }}>
-        <div className="text-xs text-gray-200 font-medium leading-tight line-clamp-2" title={card.name}>
-          {card.name}
-        </div>
-        {rarity && (
-          <div className={`text-xs mt-0.5 ${RARITY_COLOUR[rarity] ?? "text-gray-500"}`}>
-            {card.guardian.rarity}
+      {/* Name, type hint (mobile only), rarity, qty controls */}
+      <div className="flex-1 flex flex-col gap-2 sm:items-center sm:w-[150px]">
+        <div>
+          {/* Larger text on mobile */}
+          <div className="text-sm sm:text-xs text-gray-200 font-semibold leading-snug sm:text-center sm:line-clamp-2" title={card.name}>
+            {card.name}
           </div>
-        )}
-      </div>
+          {/* Type + element shown on mobile for context */}
+          <div className="text-xs text-gray-500 mt-0.5 sm:hidden">
+            {card.guardian.type}{card.elements ? ` · ${card.elements}` : ""}
+          </div>
+          {rarity && (
+            <div className={`text-xs mt-0.5 sm:text-center ${RARITY_COLOUR[rarity] ?? "text-gray-500"}`}>
+              {card.guardian.rarity}
+            </div>
+          )}
+        </div>
 
-      {/* Qty controls */}
-      <div className="flex items-center gap-1.5">
-        <button
-          onClick={() => onQtyChange(card.name, Math.max(0, qty - 1))}
-          disabled={qty === 0}
-          className="w-7 h-7 rounded-md bg-gray-800 hover:bg-gray-700 disabled:opacity-25 text-white font-bold transition-colors flex items-center justify-center"
-        >−</button>
-        <span className="w-5 text-center text-sm font-mono font-semibold text-white tabular-nums">{qty}</span>
-        <button
-          onClick={() => onQtyChange(card.name, qty + 1)}
-          className="w-7 h-7 rounded-md bg-gray-800 hover:bg-gray-700 text-white font-bold transition-colors flex items-center justify-center"
-        >+</button>
+        {/* Qty controls — bigger touch targets on mobile */}
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onQtyChange(card.name, Math.max(0, qty - 1))}
+            disabled={qty === 0}
+            className="w-9 h-9 sm:w-7 sm:h-7 rounded-md bg-gray-800 hover:bg-gray-700 disabled:opacity-25 text-white font-bold transition-colors flex items-center justify-center text-base sm:text-sm"
+          >−</button>
+          <span className="w-6 text-center text-base sm:text-sm font-mono font-semibold text-white tabular-nums">{qty}</span>
+          <button
+            onClick={() => onQtyChange(card.name, qty + 1)}
+            className="w-9 h-9 sm:w-7 sm:h-7 rounded-md bg-gray-800 hover:bg-gray-700 text-white font-bold transition-colors flex items-center justify-center text-base sm:text-sm"
+          >+</button>
+        </div>
       </div>
     </div>
   );
@@ -522,7 +548,7 @@ export default function CollectionPage() {
               </div>
             )
             : (
-              <div className="flex flex-wrap gap-5">
+              <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:gap-5">
                 {ownedCards.map((card) => (
                   <CardTile
                     key={card.name}
@@ -549,8 +575,8 @@ export default function CollectionPage() {
           {/* ── Top row: narrow filters sidebar + preview panel ── */}
           <div className="flex gap-5 items-start">
 
-            {/* Filters sidebar */}
-            <div className="w-72 shrink-0 bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-4">
+            {/* Filters sidebar — full width on mobile, fixed 288px on desktop */}
+            <div className="flex-1 sm:flex-none sm:w-72 bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-4">
 
               {/* Search */}
               <input
@@ -657,9 +683,9 @@ export default function CollectionPage() {
               )}
             </div>
 
-            {/* Card preview panel — right next to filters */}
+            {/* Card preview panel — hidden on mobile, shown on desktop */}
             <div
-              className="flex-1 flex items-center justify-center bg-gray-900/40 border border-gray-800 rounded-xl"
+              className="hidden sm:flex flex-1 items-center justify-center bg-gray-900/40 border border-gray-800 rounded-xl"
               style={{ minHeight: HOVER_H + 48 }}
             >
               {hoveredCard
@@ -676,7 +702,7 @@ export default function CollectionPage() {
           ) : browseCards.length === 0 ? (
             <div className="py-12 text-center text-gray-600 text-sm">No cards found.</div>
           ) : (
-            <div className="flex flex-wrap gap-5">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:gap-5">
               {browseCards.map((card) => (
                 <CardTile
                   key={card.name}
