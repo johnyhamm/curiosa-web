@@ -8,7 +8,6 @@ import { NavAuth } from "@/components/NavAuth";
 import { NavSubscribeButton } from "@/components/NavSubscribeButton";
 import { MobileNav } from "@/components/MobileNav";
 import { FeedbackProvider } from "@/app/components/FeedbackProvider";
-import { FeedbackNavButton } from "@/app/components/FeedbackNavButton";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -153,7 +152,6 @@ function AppShell({ children }: { children: React.ReactNode }) {
                 >
                   About Us
                 </Link>
-                <FeedbackNavButton />
                 <NavAuth />
               </div>
 
