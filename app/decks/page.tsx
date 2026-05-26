@@ -6,6 +6,7 @@ import { useAuthSafe } from "@/lib/useAuthSafe";
 import { useDeckSearch } from "@/lib/deck-client-cache";
 import type { DeckIndexEntry } from "@/lib/decks";
 import type { ApiDeckCard } from "@/lib/simulator";
+import type { SavedBuilderDeck } from "@/lib/builder-deck";
 
 interface FullDeckData {
   decklist: ApiDeckCard[];
@@ -197,6 +198,62 @@ function DeckList({ data, deckId }: { data: FullDeckData; deckId: string }) {
   );
 }
 
+// ─── My Saved Decks section ───────────────────────────────────────────────────
+
+function MyDecksSection({ decks }: { decks: SavedBuilderDeck[] }) {
+  if (decks.length === 0) return null;
+
+  return (
+    <div className="mb-8">
+      <div className="flex items-center gap-3 mb-3">
+        <h2 className="text-sm font-bold uppercase tracking-widest text-amber-600 shrink-0">
+          My Saved Decks
+        </h2>
+        <div className="flex-1 border-t border-amber-900/40" />
+        <span className="text-xs text-gray-600 shrink-0">{decks.length} deck{decks.length !== 1 ? "s" : ""}</span>
+      </div>
+
+      <div className="grid sm:grid-cols-2 gap-3">
+        {decks.map(deck => {
+          const cardCount = deck.e.reduce((s, e) => s + e[1], 0);
+          const savedDate = new Date(deck.at).toLocaleDateString(undefined, {
+            month: "short", day: "numeric", year: "numeric",
+          });
+          return (
+            <div
+              key={deck.id}
+              className="bg-gray-900 border border-amber-900/30 rounded-xl p-4 flex items-start justify-between gap-3
+                hover:border-amber-700/40 transition-colors"
+            >
+              <div className="min-w-0">
+                <div className="font-semibold text-white text-sm truncate">{deck.name}</div>
+                <div className="text-xs text-gray-500 mt-0.5">
+                  {deck.av ? (
+                    <span>Avatar: <span className="text-gray-400">{deck.av}</span></span>
+                  ) : (
+                    <span className="text-gray-600">No avatar</span>
+                  )}
+                  <span className="ml-2 text-gray-600">· {cardCount} cards</span>
+                </div>
+                <div className="text-xs text-gray-700 mt-0.5">Saved {savedDate}</div>
+              </div>
+              <a
+                href="/deckbuilder"
+                className="shrink-0 px-3 py-1.5 text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20
+                  text-amber-400 border border-amber-500/20 rounded-lg transition-colors"
+              >
+                Open in Builder →
+              </a>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────────────────────────
+
 const PAGE_SIZE = 30;
 
 function DecksPageContent() {
@@ -208,6 +265,16 @@ function DecksPageContent() {
   const [avatar, setAvatar] = useState("");
   const [sortBy, setSortBy] = useState<"likes" | "views">("views");
   const [page,   setPage]   = useState(0);
+
+  // My saved builder decks
+  const [myDecks, setMyDecks] = useState<SavedBuilderDeck[]>([]);
+  useEffect(() => {
+    if (!isSignedIn) return;
+    fetch("/api/user/builder-decks")
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setMyDecks(d as SavedBuilderDeck[]))
+      .catch(console.error);
+  }, [isSignedIn]);
 
   // Client-side search (instant — no API round-trips).
   // Falls back to live API automatically when query has no local matches.
@@ -284,6 +351,9 @@ function DecksPageContent() {
       <p className="text-gray-400 mb-8 text-sm">
         Browse and search decks from curiosa.io. Results filter instantly.
       </p>
+
+      {/* My Saved Decks */}
+      {myDecks.length > 0 && <MyDecksSection decks={myDecks} />}
 
       {/* Search controls */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-6 flex flex-col gap-4">

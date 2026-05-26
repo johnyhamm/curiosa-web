@@ -1,13 +1,19 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
+import { useAuthSafe } from "@/lib/useAuthSafe";
+import type { SavedBuilderDeck } from "@/lib/builder-deck";
+import { builderDeckToOverride } from "@/lib/builder-deck-sim";
 import { DeckPicker } from "@/app/simulate/DeckPicker";
+import type { DeckOverride } from "@/app/simulate/DeckEditor";
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
 interface Deck {
   id: string;
   name: string;
+  /** Set when this slot was filled from a saved builder deck. */
+  override?: DeckOverride | null;
 }
 
 interface BracketMatch {
@@ -172,13 +178,27 @@ function MatchCard({ match }: { match: BracketMatch }) {
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function TournamentPage() {
+  const { isSignedIn } = useAuthSafe();
+
   const [size, setSize] = useState<4 | 8>(4);
-  const [slotIds, setSlotIds]     = useState<string[]>(Array(4).fill(""));
-  const [slotNames, setSlotNames] = useState<string[]>(Array(4).fill(""));
+  const [slotIds, setSlotIds]           = useState<string[]>(Array(4).fill(""));
+  const [slotNames, setSlotNames]       = useState<string[]>(Array(4).fill(""));
+  const [slotOverrides, setSlotOverrides] = useState<(DeckOverride | null)[]>(Array(4).fill(null));
   const [iterations, setIterations] = useState(200);
   const [phase, setPhase]     = useState<Phase>("setup");
   const [rounds, setRounds]   = useState<BracketRound[]>([]);
   const [champion, setChampion] = useState<Deck | null>(null);
+  const [builderDecks, setBuilderDecks] = useState<SavedBuilderDeck[]>([]);
+
+  // ── Load saved builder decks when signed in ────────────────────────────────
+
+  useEffect(() => {
+    if (!isSignedIn) return;
+    fetch("/api/user/builder-decks")
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setBuilderDecks(d as SavedBuilderDeck[]))
+      .catch(console.error);
+  }, [isSignedIn]);
 
   // ── Helpers ────────────────────────────────────────────────────────────────
 
@@ -186,6 +206,7 @@ export default function TournamentPage() {
     setSize(n);
     setSlotIds(Array(n).fill(""));
     setSlotNames(Array(n).fill(""));
+    setSlotOverrides(Array(n).fill(null));
     reset();
   }
 
@@ -195,13 +216,18 @@ export default function TournamentPage() {
     setPhase("setup");
   }
 
-  function setSlot(i: number, id: string, name?: string) {
-    setSlotIds(prev   => { const x = [...prev];   x[i] = id;           return x; });
-    setSlotNames(prev => { const x = [...prev];   x[i] = name ?? id;   return x; });
+  function setSlot(i: number, id: string, name?: string, override: DeckOverride | null = null) {
+    setSlotIds(prev      => { const x = [...prev]; x[i] = id;           return x; });
+    setSlotNames(prev    => { const x = [...prev]; x[i] = name ?? id;   return x; });
+    setSlotOverrides(prev => { const x = [...prev]; x[i] = override;    return x; });
     reset();
   }
 
-  const decks: Deck[] = slotIds.map((id, i) => ({ id, name: slotNames[i] || id }));
+  const decks: Deck[] = slotIds.map((id, i) => ({
+    id,
+    name: slotNames[i] || id,
+    override: slotOverrides[i],
+  }));
   const filled    = decks.filter(d => d.id.trim()).length;
   const canRun    = filled === size && phase === "setup";
 
@@ -253,7 +279,13 @@ export default function TournamentPage() {
             const res = await fetch("/api/simulate", {
               method: "POST",
               headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({ deckA: match.deckA.id, deckB: match.deckB.id, iterations }),
+              body: JSON.stringify({
+                deckA: match.deckA.id,
+                deckB: match.deckB.id,
+                iterations,
+                ...(match.deckA.override ? { deckAOverride: match.deckA.override } : {}),
+                ...(match.deckB.override ? { deckBOverride: match.deckB.override } : {}),
+              }),
             });
             if (!res.ok) throw new Error(`HTTP ${res.status}`);
             const data = (await res.json()) as {
@@ -263,9 +295,17 @@ export default function TournamentPage() {
 
             const winA = parseFloat(data.winRateA);
             const winB = parseFloat(data.winRateB);
-            // Prefer the canonical name returned by the API
-            const resolvedA: Deck = { id: match.deckA.id, name: data.deckAName || match.deckA.name };
-            const resolvedB: Deck = { id: match.deckB.id, name: data.deckBName || match.deckB.name };
+            // Prefer the canonical name returned by the API; carry the override forward.
+            const resolvedA: Deck = {
+              id: match.deckA.id,
+              name: data.deckAName || match.deckA.name,
+              override: match.deckA.override,
+            };
+            const resolvedB: Deck = {
+              id: match.deckB.id,
+              name: data.deckBName || match.deckB.name,
+              override: match.deckB.override,
+            };
             const winner = winA >= winB ? resolvedA : resolvedB;
             winners[mi] = winner;
 
@@ -360,8 +400,17 @@ export default function TournamentPage() {
               key={`${size}-${i}`}
               label={`Deck ${i + 1}`}
               value={slotIds[i] ?? ""}
-              onChange={(id, name) => setSlot(i, id, name)}
+              onChange={(id, name) => {
+                if (!id.startsWith("builder:")) setSlot(i, id, name, null);
+              }}
               accentColor={i % 2 === 0 ? "amber" : "sky"}
+              savedDecks={builderDecks}
+              onBuilderDeck={async (deck) => {
+                try {
+                  const override = await builderDeckToOverride(deck);
+                  setSlot(i, "builder:" + deck.id, deck.name, override);
+                } catch (e) { console.error("Failed to load builder deck:", e); }
+              }}
             />
           ))}
         </div>

@@ -5,6 +5,8 @@ import type { Card } from "@/lib/cards";
 import type { ApiDeckCard, SimulationReport } from "@/lib/simulator";
 import type { SavedBuilderDeck, SlimEntry } from "@/lib/builder-deck";
 import type { CollectionMap } from "@/lib/collection";
+import type { DeckOverride } from "@/app/simulate/DeckEditor";
+import { builderDeckToOverride } from "@/lib/builder-deck-sim";
 import { DeckPicker } from "@/app/simulate/DeckPicker";
 import { useAuthSafe } from "@/lib/useAuthSafe";
 
@@ -552,11 +554,12 @@ export default function DeckBuilderPage() {
   const [collectionOnly, setCollectionOnly] = useState(false);
 
   // Sim state
-  const [opponentId, setOpponentId] = useState("");
-  const [simIterations, setSimIterations] = useState(300);
-  const [simLoading, setSimLoading] = useState(false);
-  const [simReport, setSimReport] = useState<SimulationReport | null>(null);
-  const [simError, setSimError] = useState<string | null>(null);
+  const [opponentId, setOpponentId]         = useState("");
+  const [opponentOverride, setOpponentOverride] = useState<DeckOverride | null>(null);
+  const [simIterations, setSimIterations]   = useState(300);
+  const [simLoading, setSimLoading]         = useState(false);
+  const [simReport, setSimReport]           = useState<SimulationReport | null>(null);
+  const [simError, setSimError]             = useState<string | null>(null);
 
   // Save/load state
   const [savedDecks, setSavedDecks] = useState<SavedBuilderDeck[]>([]);
@@ -814,7 +817,8 @@ export default function DeckBuilderPage() {
   // ── Simulation ────────────────────────────────────────────────────────────
 
   const totalCards = entries.reduce((s, e) => s + e.qty, 0);
-  const canSim = totalCards > 0 && opponentId.trim() !== "";
+  const canSim = totalCards > 0 && opponentId.trim() !== ""
+    && (!opponentId.startsWith("builder:") || opponentOverride !== null);
 
   async function runSim() {
     setSimReport(null);
@@ -833,6 +837,7 @@ export default function DeckBuilderPage() {
             avatar: avatar ? { quantity: 1, card: avatar } : null,
             name: deckName,
           },
+          ...(opponentOverride ? { deckBOverride: opponentOverride } : {}),
         }),
       });
       if (!res.ok) {
@@ -1166,11 +1171,24 @@ export default function DeckBuilderPage() {
               label="Opponent"
               value={opponentId}
               onChange={(id) => {
-                setOpponentId(id);
-                setSimReport(null);
-                setSimError(null);
+                if (!id.startsWith("builder:")) {
+                  setOpponentId(id);
+                  setOpponentOverride(null);
+                  setSimReport(null);
+                  setSimError(null);
+                }
               }}
               accentColor="sky"
+              savedDecks={savedDecks}
+              onBuilderDeck={async (deck) => {
+                try {
+                  const override = await builderDeckToOverride(deck);
+                  setOpponentId("builder:" + deck.id);
+                  setOpponentOverride(override);
+                  setSimReport(null);
+                  setSimError(null);
+                } catch (e) { console.error("Failed to load builder deck:", e); }
+              }}
             />
 
             <div className="flex flex-col gap-2">

@@ -1,8 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useAuthSafe } from "@/lib/useAuthSafe";
 import type { SimulationReport } from "@/lib/simulator";
+import type { SavedBuilderDeck } from "@/lib/builder-deck";
+import { builderDeckToOverride } from "@/lib/builder-deck-sim";
 import { GridBoard } from "./GridBoard";
 import { DeckPicker } from "./DeckPicker";
 import { DeckEditor } from "./DeckEditor";
@@ -46,12 +48,39 @@ export default function SimulatePage() {
   const [deckB, setDeckB] = useState("");
   const [deckAOverride, setDeckAOverride] = useState<DeckOverride | null>(null);
   const [deckBOverride, setDeckBOverride] = useState<DeckOverride | null>(null);
+  const [builderDecks, setBuilderDecks]   = useState<SavedBuilderDeck[]>([]);
   const [iterations, setIterations] = useState(500);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [report, setReport] = useState<SimulationReport | null>(null);
   const [snapIdx, setSnapIdx] = useState(0);
   const [saveStatus, setSaveStatus] = useState<"idle" | "saving" | "saved">("idle");
+
+  // Load the user's saved builder decks once they sign in.
+  useEffect(() => {
+    if (!isSignedIn) return;
+    fetch("/api/user/builder-decks")
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setBuilderDecks(d as SavedBuilderDeck[]))
+      .catch(console.error);
+  }, [isSignedIn]);
+
+  // Async handlers: convert a saved builder deck into a DeckOverride.
+  async function handleBuilderDeckA(deck: SavedBuilderDeck) {
+    try {
+      const override = await builderDeckToOverride(deck);
+      setDeckA("builder:" + deck.id);
+      setDeckAOverride(override);
+    } catch (e) { console.error("Failed to load builder deck:", e); }
+  }
+
+  async function handleBuilderDeckB(deck: SavedBuilderDeck) {
+    try {
+      const override = await builderDeckToOverride(deck);
+      setDeckB("builder:" + deck.id);
+      setDeckBOverride(override);
+    } catch (e) { console.error("Failed to load builder deck:", e); }
+  }
 
   const saveResult = async () => {
     if (!report) return;
@@ -144,10 +173,12 @@ export default function SimulatePage() {
             <DeckPicker
               label="Deck A"
               value={deckA}
-              onChange={(id) => { setDeckA(id); setDeckAOverride(null); }}
+              onChange={(id) => { if (!id.startsWith("builder:")) { setDeckA(id); setDeckAOverride(null); } }}
               accentColor="amber"
+              savedDecks={builderDecks}
+              onBuilderDeck={handleBuilderDeckA}
             />
-            {deckA.trim() && (
+            {deckA.trim() && !deckA.startsWith("builder:") && (
               <DeckEditor
                 deckValue={deckA.trim()}
                 accentColor="amber"
@@ -159,10 +190,12 @@ export default function SimulatePage() {
             <DeckPicker
               label="Deck B"
               value={deckB}
-              onChange={(id) => { setDeckB(id); setDeckBOverride(null); }}
+              onChange={(id) => { if (!id.startsWith("builder:")) { setDeckB(id); setDeckBOverride(null); } }}
               accentColor="sky"
+              savedDecks={builderDecks}
+              onBuilderDeck={handleBuilderDeckB}
             />
-            {deckB.trim() && (
+            {deckB.trim() && !deckB.startsWith("builder:") && (
               <DeckEditor
                 deckValue={deckB.trim()}
                 accentColor="sky"
