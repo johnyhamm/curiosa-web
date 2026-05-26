@@ -76,7 +76,8 @@ function Chip({
 // ─── Card image (parameterised width) ────────────────────────────────────────
 
 function CardImage({ card, w = CARD_W }: { card: Card; w?: number }) {
-  const imgUrl = cardImageUrl(card.name);
+  // Request at least w400 (full original quality); display size may be smaller
+  const imgUrl = cardImageUrl(card.name, Math.max(400, w * 2));
   const isSite = card.guardian.type === "Site";
   const [failed, setFailed] = useState(false);
 

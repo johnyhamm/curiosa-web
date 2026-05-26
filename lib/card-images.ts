@@ -1112,7 +1112,7 @@ const NAME_TO_ID: Record<string, string> = {
  * Returns a Google Drive thumbnail URL for the named card, or null if not found.
  * `size` is the thumbnail width in pixels (default 220).
  */
-export function cardImageUrl(name: string, size = 220): string | null {
+export function cardImageUrl(name: string, size = 400): string | null {
   const id = NAME_TO_ID[name.toLowerCase()];
   if (!id) return null;
   // Route through our proxy — avoids ORB blocking and Drive rate-limits in the browser.
