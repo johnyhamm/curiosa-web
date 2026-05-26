@@ -178,6 +178,49 @@ function HoverPreview({ card }: { card: Card }) {
   );
 }
 
+// ─── Browse preview (inline panel, same 2× size, no fixed positioning) ───────
+
+function BrowsePreview({ card }: { card: Card }) {
+  const imgUrl = cardImageUrl(card.name);
+  const isSite = card.guardian.type === "Site";
+  const [failed, setFailed] = useState(false);
+
+  if (!imgUrl || failed) return null;
+
+  return (
+    <div style={{ filter: "drop-shadow(0 20px 40px rgba(0,0,0,0.85))" }}>
+      {isSite ? (
+        <div
+          className="relative overflow-hidden rounded-xl ring-2 ring-amber-500/20"
+          style={{ width: HOVER_W, height: HOVER_SITE_H }}
+        >
+          <img
+            src={imgUrl}
+            alt={card.name}
+            onError={() => setFailed(true)}
+            style={{
+              position: "absolute",
+              left: "50%", top: "50%",
+              width: HOVER_SITE_IW, height: HOVER_SITE_IH,
+              maxWidth: "none",
+              objectFit: "cover",
+              transform: `translate(${-HOVER_SITE_IW / 2}px, ${-HOVER_SITE_IH / 2}px) rotate(90deg)`,
+            }}
+          />
+        </div>
+      ) : (
+        <img
+          src={imgUrl}
+          alt={card.name}
+          onError={() => setFailed(true)}
+          className="rounded-xl block ring-2 ring-amber-500/20"
+          style={{ width: HOVER_W, height: HOVER_H, objectFit: "cover" }}
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── Card tile ────────────────────────────────────────────────────────────────
 
 function CardTile({
@@ -494,8 +537,8 @@ export default function CollectionPage() {
             )
       )}
 
-      {/* ── Hover preview ── */}
-      {hoveredCard && (
+      {/* ── Fixed hover preview — My Collection tab only ── */}
+      {tab === "mine" && hoveredCard && (
         <HoverPreview card={hoveredCard} />
       )}
 
@@ -503,92 +546,84 @@ export default function CollectionPage() {
       {tab === "browse" && (
         <div className="flex flex-col gap-6">
 
-          {/* ── Filters panel ── */}
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex flex-col gap-4">
+          {/* ── Top row: narrow filters sidebar + preview panel ── */}
+          <div className="flex gap-5 items-start">
 
-            {/* Search + Sort */}
-            <div className="flex flex-col sm:flex-row gap-3">
+            {/* Filters sidebar */}
+            <div className="w-72 shrink-0 bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-4">
+
+              {/* Search */}
               <input
                 type="text"
                 placeholder="Search card name or text…"
                 value={query}
                 onChange={(e) => setQuery(e.target.value)}
-                className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500"
               />
+
+              {/* Sort */}
               <select
                 value={sort}
                 onChange={(e) => setSort(e.target.value)}
-                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-amber-500"
+                className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-amber-500"
               >
                 {SORTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
               </select>
-            </div>
 
-            {/* Element chips */}
-            <div>
-              <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Element</div>
-              <div className="flex flex-wrap gap-2">
-                {ELEMENTS.map((el) => (
-                  <Chip
-                    key={el}
-                    label={el}
-                    active={elements.includes(el)}
-                    colour={EL_COLOUR[el]}
-                    onClick={() => toggleEl(el)}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Type chips */}
-            <div>
-              <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Type</div>
-              <div className="flex flex-wrap gap-2">
-                {TYPES.map((t) => (
-                  <Chip key={t} label={t} active={types.includes(t)} onClick={() => toggleType(t)} />
-                ))}
-              </div>
-            </div>
-
-            {/* Rarity chips */}
-            <div>
-              <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Rarity</div>
-              <div className="flex flex-wrap gap-2">
-                {RARITIES.map((r) => (
-                  <Chip
-                    key={r}
-                    label={r}
-                    active={rarities.includes(r)}
-                    colour={`bg-gray-800 border ${
-                      r === "Unique" ? "text-amber-400 border-amber-500/50 bg-amber-500/10" :
-                      r === "Elite"  ? "text-sky-400 border-sky-500/50 bg-sky-500/10" :
-                      r === "Exceptional" ? "text-green-400 border-green-500/50 bg-green-500/10" :
-                      "text-gray-300 border-gray-500"
-                    }`}
-                    onClick={() => toggleRarity(r)}
-                  />
-                ))}
-              </div>
-            </div>
-
-            {/* Set + Owned toggle row */}
-            <div className="flex flex-wrap items-center gap-3">
+              {/* Element chips */}
               <div>
-                <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Set</div>
+                <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Element</div>
                 <div className="flex flex-wrap gap-2">
-                  {SETS.map((s) => (
+                  {ELEMENTS.map((el) => (
+                    <Chip key={el} label={el} active={elements.includes(el)} colour={EL_COLOUR[el]} onClick={() => toggleEl(el)} />
+                  ))}
+                </div>
+              </div>
+
+              {/* Type chips */}
+              <div>
+                <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Type</div>
+                <div className="flex flex-wrap gap-2">
+                  {TYPES.map((t) => (
+                    <Chip key={t} label={t} active={types.includes(t)} onClick={() => toggleType(t)} />
+                  ))}
+                </div>
+              </div>
+
+              {/* Rarity chips */}
+              <div>
+                <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Rarity</div>
+                <div className="flex flex-wrap gap-2">
+                  {RARITIES.map((r) => (
                     <Chip
-                      key={s}
-                      label={s}
-                      active={set === s}
-                      onClick={() => setSet((prev) => prev === s ? "" : s)}
+                      key={r}
+                      label={r}
+                      active={rarities.includes(r)}
+                      colour={`bg-gray-800 border ${
+                        r === "Unique"      ? "text-amber-400 border-amber-500/50 bg-amber-500/10" :
+                        r === "Elite"       ? "text-sky-400 border-sky-500/50 bg-sky-500/10" :
+                        r === "Exceptional" ? "text-green-400 border-green-500/50 bg-green-500/10" :
+                        "text-gray-300 border-gray-500"
+                      }`}
+                      onClick={() => toggleRarity(r)}
                     />
                   ))}
                 </div>
               </div>
 
+              {/* Set chips */}
+              <div>
+                <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Set</div>
+                <div className="flex flex-wrap gap-2">
+                  {SETS.map((s) => (
+                    <Chip key={s} label={s} active={set === s} onClick={() => setSet((prev) => prev === s ? "" : s)} />
+                  ))}
+                </div>
+              </div>
+
+              {/* Owned only toggle */}
               {isSignedIn && (
-                <div className="sm:ml-auto mt-4 sm:mt-0">
+                <div>
                   <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Show</div>
                   <button
                     onClick={() => setOwnedOnly((v) => !v)}
@@ -605,22 +640,34 @@ export default function CollectionPage() {
                   </button>
                 </div>
               )}
+
+              {/* Active filter summary + clear */}
+              {(elements.length > 0 || types.length > 0 || rarities.length > 0 || set || query) && (
+                <div className="flex items-center justify-between border-t border-gray-800 pt-3">
+                  <span className="text-xs text-gray-500">
+                    {browseTotal} card{browseTotal !== 1 ? "s" : ""} match
+                  </span>
+                  <button
+                    onClick={() => { setQuery(""); setElements([]); setTypes([]); setRarities([]); setSet(""); }}
+                    className="text-xs text-amber-400 hover:text-amber-300 font-medium"
+                  >
+                    Clear all
+                  </button>
+                </div>
+              )}
             </div>
 
-            {/* Active filter summary + clear */}
-            {(elements.length > 0 || types.length > 0 || rarities.length > 0 || set || query) && (
-              <div className="flex items-center justify-between border-t border-gray-800 pt-3">
-                <span className="text-xs text-gray-500">
-                  {browseTotal} card{browseTotal !== 1 ? "s" : ""} match
-                </span>
-                <button
-                  onClick={() => { setQuery(""); setElements([]); setTypes([]); setRarities([]); setSet(""); }}
-                  className="text-xs text-amber-400 hover:text-amber-300 font-medium"
-                >
-                  Clear all filters
-                </button>
-              </div>
-            )}
+            {/* Card preview panel — right next to filters */}
+            <div
+              className="flex-1 flex items-center justify-center bg-gray-900/40 border border-gray-800 rounded-xl"
+              style={{ minHeight: HOVER_H + 48 }}
+            >
+              {hoveredCard
+                ? <BrowsePreview card={hoveredCard} />
+                : <span className="text-gray-700 text-sm">Hover a card below to preview</span>
+              }
+            </div>
+
           </div>
 
           {/* ── Results grid ── */}
