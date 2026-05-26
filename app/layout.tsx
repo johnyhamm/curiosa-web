@@ -8,6 +8,7 @@ import { NavAuth } from "@/components/NavAuth";
 import { NavSubscribeButton } from "@/components/NavSubscribeButton";
 import { MobileNav } from "@/components/MobileNav";
 import { FeedbackProvider } from "@/app/components/FeedbackProvider";
+import { AskTheSorcerers } from "@/app/components/AskTheSorcerers";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -161,6 +162,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
           </div>
         </nav>
         <main className="flex-1">{children}</main>
+        <AskTheSorcerers />
         <Analytics />
         <footer className="bg-gray-900 border-t border-gray-800 py-6 text-center text-sm text-gray-500">
           <p>
