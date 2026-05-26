@@ -168,9 +168,9 @@ function CardsPageContent() {
 
       const res = await fetch(`/api/cards/search?${params}`);
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const data = (await res.json()) as Card[];
-      setResults(data);
-      setTotal(data.length);
+      const data = (await res.json()) as { results: Card[]; total: number };
+      setResults(data.results);
+      setTotal(data.total);
     } catch (e) {
       setError(String(e));
     } finally {

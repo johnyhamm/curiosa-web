@@ -6,32 +6,74 @@ import type { CollectionMap } from "@/lib/collection";
 import { cardImageUrl } from "@/lib/card-images";
 import { useAuthSafe } from "@/lib/useAuthSafe";
 
-// ─── Constants ────────────────────────────────────────────────────────────────
+// ─── Card display constants ───────────────────────────────────────────────────
 
-// Card display width in the grid
-const CARD_W = 150;
-// Portrait card height  (63:88 ratio)
-const CARD_H = Math.round(CARD_W * (88 / 63));          // ≈ 210
-// Site card — displayed landscape (88:63), so container height = CARD_W * (63/88)
-const SITE_H = Math.round(CARD_W * (63 / 88));          // ≈ 107
-// The portrait CSS element that gets rotated inside the site container
-// It must have the same ratio as the source image (portrait 63:88).
-// Its dimensions are SITE_H × CARD_W  (swapped, so rotate(90°) yields CARD_W × SITE_H)
-const SITE_INNER_W = SITE_H;  // = 107  (width of the inner portrait element)
-const SITE_INNER_H = CARD_W;  // = 150  (height of the inner portrait element)
+const CARD_W   = 150;
+const CARD_H   = Math.round(CARD_W * (88 / 63));   // ≈ 210 — portrait
+const SITE_H   = Math.round(CARD_W * (63 / 88));   // ≈ 107 — landscape container
+const SITE_IW  = SITE_H;                            // inner portrait element width
+const SITE_IH  = CARD_W;                            // inner portrait element height
+
+const PAGE_SIZE = 20;
+
+// ─── Filter options (matching curiosa.io style) ───────────────────────────────
 
 const ELEMENTS = ["Water", "Earth", "Fire", "Air"];
-const TYPES    = ["Minion", "Magic", "Artifact", "Aura", "Site", "Avatar"];
+const TYPES    = ["Avatar", "Site", "Minion", "Magic", "Artifact", "Aura"];
+const RARITIES = ["Ordinary", "Exceptional", "Elite", "Unique"];
+const SETS     = ["Alpha", "Beta", "Arthurian Legends", "Dragonlord", "Gothic", "Promotional"];
+const SORTS    = [
+  { value: "name-asc",    label: "Name A → Z" },
+  { value: "name-desc",   label: "Name Z → A" },
+  { value: "cost-asc",    label: "Cost ↑" },
+  { value: "cost-desc",   label: "Cost ↓" },
+  { value: "rarity-asc",  label: "Rarity ↑" },
+  { value: "rarity-desc", label: "Rarity ↓" },
+];
 
-// ─── Card image component ─────────────────────────────────────────────────────
+// ─── Element colour chips ─────────────────────────────────────────────────────
+
+const EL_COLOUR: Record<string, string> = {
+  Water: "bg-sky-900/50 text-sky-400 border-sky-700/40",
+  Earth: "bg-yellow-900/40 text-yellow-500 border-yellow-700/40",
+  Fire:  "bg-orange-900/40 text-orange-400 border-orange-700/40",
+  Air:   "bg-violet-900/40 text-violet-400 border-violet-700/40",
+};
+
+const RARITY_COLOUR: Record<string, string> = {
+  ordinary:    "text-gray-400",
+  exceptional: "text-green-400",
+  elite:       "text-sky-400",
+  unique:      "text-amber-400",
+};
+
+// ─── Pill chip toggle ─────────────────────────────────────────────────────────
+
+function Chip({
+  label, active, colour, onClick,
+}: { label: string; active: boolean; colour?: string; onClick: () => void }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`px-3 py-1 rounded-full text-xs font-semibold border transition-colors ${
+        active
+          ? colour ?? "bg-amber-500/20 text-amber-400 border-amber-500/50"
+          : "bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300 hover:border-gray-600"
+      }`}
+    >
+      {label}
+    </button>
+  );
+}
+
+// ─── Card image ───────────────────────────────────────────────────────────────
 
 function CardImage({ card }: { card: Card }) {
-  const imgUrl  = cardImageUrl(card.name);
-  const isSite  = card.guardian.type === "Site";
+  const imgUrl = cardImageUrl(card.name);
+  const isSite = card.guardian.type === "Site";
   const [failed, setFailed] = useState(false);
 
   if (!imgUrl || failed) {
-    // Fallback placeholder
     return (
       <div
         className="bg-gray-800 rounded-lg flex items-center justify-center text-gray-600 text-xs text-center px-2"
@@ -43,14 +85,6 @@ function CardImage({ card }: { card: Card }) {
   }
 
   if (isSite) {
-    /**
-     * Site cards are landscape in play but source images are portrait (63:88).
-     * To render correctly at CARD_W × SITE_H (landscape):
-     *  1. Outer container: CARD_W wide, SITE_H tall, overflow:hidden
-     *  2. Inner img:  SITE_INNER_W × SITE_INNER_H (portrait, same 63:88 ratio)
-     *     centred then rotated 90° clockwise — this swaps the dimensions visually
-     *     so it appears as CARD_W × SITE_H landscape without any clipping.
-     */
     return (
       <div
         className="relative overflow-hidden rounded-lg shadow-md shadow-black/40"
@@ -62,14 +96,12 @@ function CardImage({ card }: { card: Card }) {
           onError={() => setFailed(true)}
           loading="lazy"
           style={{
-            position:   "absolute",
-            left:       "50%",
-            top:        "50%",
-            width:      SITE_INNER_W,
-            height:     SITE_INNER_H,
-            maxWidth:   "none",
-            objectFit:  "cover",
-            transform:  `translate(${-SITE_INNER_W / 2}px, ${-SITE_INNER_H / 2}px) rotate(90deg)`,
+            position: "absolute",
+            left: "50%", top: "50%",
+            width: SITE_IW, height: SITE_IH,
+            maxWidth: "none",
+            objectFit: "cover",
+            transform: `translate(${-SITE_IW / 2}px, ${-SITE_IH / 2}px) rotate(90deg)`,
           }}
         />
       </div>
@@ -88,20 +120,14 @@ function CardImage({ card }: { card: Card }) {
   );
 }
 
-// ─── Collection card tile ─────────────────────────────────────────────────────
+// ─── Card tile ────────────────────────────────────────────────────────────────
 
-function CollectionCardTile({
-  card,
-  qty,
-  onQtyChange,
-}: {
-  card: Card;
-  qty: number;
-  onQtyChange: (name: string, qty: number) => void;
-}) {
+function CardTile({
+  card, qty, onQtyChange,
+}: { card: Card; qty: number; onQtyChange: (name: string, n: number) => void }) {
+  const rarity = card.guardian.rarity?.toLowerCase() ?? "";
   return (
-    <div className="flex flex-col gap-2">
-      {/* Image with qty badge overlay */}
+    <div className="flex flex-col gap-2 items-center">
       <div className="relative" style={{ width: CARD_W }}>
         <CardImage card={card} />
         {qty > 0 && (
@@ -111,60 +137,31 @@ function CollectionCardTile({
         )}
       </div>
 
-      {/* Name */}
-      <div
-        className="text-xs text-gray-300 font-medium leading-tight text-center"
-        style={{ width: CARD_W, maxWidth: CARD_W }}
-        title={card.name}
-      >
-        <span className="line-clamp-2">{card.name}</span>
+      {/* Name + rarity */}
+      <div className="text-center" style={{ width: CARD_W }}>
+        <div className="text-xs text-gray-200 font-medium leading-tight line-clamp-2" title={card.name}>
+          {card.name}
+        </div>
+        {rarity && (
+          <div className={`text-xs mt-0.5 ${RARITY_COLOUR[rarity] ?? "text-gray-500"}`}>
+            {card.guardian.rarity}
+          </div>
+        )}
       </div>
 
       {/* Qty controls */}
-      <div className="flex items-center justify-center gap-1.5">
+      <div className="flex items-center gap-1.5">
         <button
           onClick={() => onQtyChange(card.name, Math.max(0, qty - 1))}
           disabled={qty === 0}
-          className="w-7 h-7 rounded-md bg-gray-800 hover:bg-gray-700 disabled:opacity-25 text-white font-bold transition-colors flex items-center justify-center text-base"
-        >
-          −
-        </button>
-        <span className="w-5 text-center text-sm font-mono font-semibold text-white tabular-nums">
-          {qty}
-        </span>
+          className="w-7 h-7 rounded-md bg-gray-800 hover:bg-gray-700 disabled:opacity-25 text-white font-bold transition-colors flex items-center justify-center"
+        >−</button>
+        <span className="w-5 text-center text-sm font-mono font-semibold text-white tabular-nums">{qty}</span>
         <button
           onClick={() => onQtyChange(card.name, qty + 1)}
-          className="w-7 h-7 rounded-md bg-gray-800 hover:bg-gray-700 text-white font-bold transition-colors flex items-center justify-center text-base"
-        >
-          +
-        </button>
+          className="w-7 h-7 rounded-md bg-gray-800 hover:bg-gray-700 text-white font-bold transition-colors flex items-center justify-center"
+        >+</button>
       </div>
-    </div>
-  );
-}
-
-// ─── Card grid ────────────────────────────────────────────────────────────────
-
-function CardGrid({
-  cards,
-  collection,
-  onQtyChange,
-}: {
-  cards: Card[];
-  collection: CollectionMap;
-  onQtyChange: (name: string, qty: number) => void;
-}) {
-  if (cards.length === 0) return null;
-  return (
-    <div className="flex flex-wrap gap-4">
-      {cards.map((card) => (
-        <CollectionCardTile
-          key={card.name}
-          card={card}
-          qty={collection[card.name.trim().toLowerCase()]?.qty ?? 0}
-          onQtyChange={onQtyChange}
-        />
-      ))}
     </div>
   );
 }
@@ -173,6 +170,8 @@ function CardGrid({
 
 type Tab = "mine" | "browse";
 
+interface SearchResult { results: Card[]; total: number; }
+
 export default function CollectionPage() {
   const { isSignedIn, isLoaded } = useAuthSafe();
 
@@ -180,20 +179,27 @@ export default function CollectionPage() {
   const [collection, setCollection] = useState<CollectionMap>({});
   const [colLoading, setColLoading] = useState(true);
 
-  // Cards loaded for "My Collection" tab
-  const [ownedCards, setOwnedCards]         = useState<Card[]>([]);
-  const [ownedLoading, setOwnedLoading]     = useState(false);
+  // My Collection tab
+  const [ownedCards, setOwnedCards]     = useState<Card[]>([]);
+  const [ownedLoading, setOwnedLoading] = useState(false);
 
-  // Browse tab
-  const [query, setQuery]                   = useState("");
-  const [elementFilter, setElementFilter]   = useState("");
-  const [typeFilter, setTypeFilter]         = useState("");
-  const [results, setResults]               = useState<Card[]>([]);
-  const [searching, setSearching]           = useState(false);
+  // Browse tab — filter state
+  const [query, setQuery]               = useState("");
+  const [elements, setElements]         = useState<string[]>([]);
+  const [types, setTypes]               = useState<string[]>([]);
+  const [rarities, setRarities]         = useState<string[]>([]);
+  const [set, setSet]                   = useState("");
+  const [sort, setSort]                 = useState("name-asc");
+  const [ownedOnly, setOwnedOnly]       = useState(false);
+
+  // Browse tab — pagination + results
+  const [browseCards, setBrowseCards]   = useState<Card[]>([]);
+  const [browseTotal, setBrowseTotal]   = useState(0);
+  const [page, setPage]                 = useState(0);
+  const [browseLoading, setBrowseLoading] = useState(false);
+
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  // Debounced save map
-  const saveTimer = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const saveTimer   = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
 
   // ── Load collection ──────────────────────────────────────────────────────
 
@@ -211,15 +217,14 @@ export default function CollectionPage() {
 
   useEffect(() => {
     if (isSignedIn) loadCollection();
-    else            setColLoading(false);
+    else setColLoading(false);
   }, [isSignedIn, loadCollection]);
 
-  // ── Load card objects for owned cards ───────────────────────────────────
+  // ── Load card data for owned cards ───────────────────────────────────────
 
   useEffect(() => {
     const owned = Object.values(collection).filter((e) => e.qty > 0);
     if (owned.length === 0) { setOwnedCards([]); return; }
-
     setOwnedLoading(true);
     const names = owned.map((e) => e.cardName).join(",");
     fetch(`/api/cards/batch?names=${encodeURIComponent(names)}`)
@@ -229,26 +234,86 @@ export default function CollectionPage() {
       .finally(() => setOwnedLoading(false));
   }, [collection]);
 
-  // ── Quantity change (optimistic + debounced save) ─────────────────────────
+  // ── Browse: fetch page ───────────────────────────────────────────────────
+
+  const fetchBrowsePage = useCallback(async (pageNum: number) => {
+    setBrowseLoading(true);
+    try {
+      const p = new URLSearchParams({
+        limit:  String(PAGE_SIZE),
+        offset: String(pageNum * PAGE_SIZE),
+        sort,
+      });
+      if (query)           p.set("q", query);
+      if (elements.length === 1) p.set("element", elements[0]);
+      if (types.length === 1)    p.set("type", types[0]);
+      if (rarities.length === 1) p.set("rarity", rarities[0]);
+      if (set)             p.set("set", set);
+
+      const res = await fetch(`/api/cards/search?${p}`);
+      if (!res.ok) return;
+      const data = (await res.json()) as SearchResult;
+
+      // Client-side filter for multi-select and owned-only
+      let cards = data.results;
+      if (elements.length > 1) {
+        cards = cards.filter((c) =>
+          elements.every((el) => c.elements.toLowerCase().includes(el.toLowerCase()))
+        );
+      }
+      if (types.length > 1) {
+        cards = cards.filter((c) =>
+          types.some((t) => c.guardian.type.toLowerCase().includes(t.toLowerCase()))
+        );
+      }
+      if (rarities.length > 1) {
+        cards = cards.filter((c) =>
+          rarities.some((r) => (c.guardian.rarity ?? "").toLowerCase() === r.toLowerCase())
+        );
+      }
+      if (ownedOnly) {
+        cards = cards.filter((c) => (collection[c.name.trim().toLowerCase()]?.qty ?? 0) > 0);
+      }
+
+      setBrowseCards(cards);
+      setBrowseTotal(data.total);
+    } catch { /* ignore */ }
+    finally { setBrowseLoading(false); }
+  }, [query, elements, types, rarities, set, sort, ownedOnly, collection]);
+
+  // Reset to page 0 and refetch when filters change
+  useEffect(() => {
+    if (searchTimer.current) clearTimeout(searchTimer.current);
+    searchTimer.current = setTimeout(() => {
+      setPage(0);
+      fetchBrowsePage(0);
+    }, query ? 300 : 0);
+    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, elements, types, rarities, set, sort, ownedOnly]);
+
+  // Fetch when page changes
+  useEffect(() => {
+    if (tab === "browse") fetchBrowsePage(page);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [page]);
+
+  // Trigger initial browse load when switching to browse tab
+  useEffect(() => {
+    if (tab === "browse") fetchBrowsePage(0);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tab]);
+
+  // ── Quantity change ──────────────────────────────────────────────────────
 
   const handleQtyChange = useCallback((cardName: string, newQty: number) => {
     const key = cardName.trim().toLowerCase();
-
     setCollection((prev) => {
       const next = { ...prev };
-      if (newQty <= 0) {
-        delete next[key];
-      } else {
-        next[key] = {
-          cardName: key,
-          qty: newQty,
-          foilQty: prev[key]?.foilQty ?? 0,
-          updatedAt: new Date().toISOString(),
-        };
-      }
+      if (newQty <= 0) { delete next[key]; }
+      else { next[key] = { cardName: key, qty: newQty, foilQty: prev[key]?.foilQty ?? 0, updatedAt: new Date().toISOString() }; }
       return next;
     });
-
     const existing = saveTimer.current.get(key);
     if (existing) clearTimeout(existing);
     const t = setTimeout(async () => {
@@ -262,32 +327,23 @@ export default function CollectionPage() {
     saveTimer.current.set(key, t);
   }, []);
 
-  // ── Card search (browse tab) ──────────────────────────────────────────────
+  // ── Toggle helpers ───────────────────────────────────────────────────────
 
-  useEffect(() => {
-    if (searchTimer.current) clearTimeout(searchTimer.current);
-    if (!query && !elementFilter && !typeFilter) { setResults([]); return; }
-
-    searchTimer.current = setTimeout(async () => {
-      setSearching(true);
-      try {
-        const p = new URLSearchParams({ limit: "80" });
-        if (query)         p.set("q", query);
-        if (elementFilter) p.set("element", elementFilter);
-        if (typeFilter)    p.set("type", typeFilter);
-        const res = await fetch(`/api/cards/search?${p}`);
-        if (res.ok) setResults((await res.json()) as Card[]);
-      } catch { /* ignore */ }
-      finally { setSearching(false); }
-    }, 300);
-
-    return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
-  }, [query, elementFilter, typeFilter]);
+  function toggleEl(el: string) {
+    setElements((prev) => prev.includes(el) ? prev.filter((e) => e !== el) : [...prev, el]);
+  }
+  function toggleType(t: string) {
+    setTypes((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]);
+  }
+  function toggleRarity(r: string) {
+    setRarities((prev) => prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]);
+  }
 
   // ── Stats ────────────────────────────────────────────────────────────────
 
   const ownedEntries = Object.values(collection).filter((e) => e.qty > 0);
   const totalCopies  = ownedEntries.reduce((s, e) => s + e.qty, 0);
+  const totalPages   = Math.ceil(browseTotal / PAGE_SIZE);
 
   // ── Not signed in ────────────────────────────────────────────────────────
 
@@ -297,30 +353,30 @@ export default function CollectionPage() {
         <h1 className="text-3xl font-bold text-amber-400 mb-4" style={{ fontFamily: "var(--font-cinzel)" }}>
           My Collection
         </h1>
-        <p className="text-gray-400 mb-6">Sign in to track your Sorcery card collection.</p>
+        <p className="text-gray-400">Sign in to track your Sorcery card collection.</p>
       </div>
     );
   }
 
   return (
-    <div className="max-w-6xl mx-auto px-4 sm:px-6 py-10">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10">
       <h1 className="text-3xl font-bold text-amber-400 mb-2" style={{ fontFamily: "var(--font-cinzel)" }}>
         My Collection
       </h1>
       <p className="text-gray-400 text-sm mb-6">
-        Track the cards you own. The Deck Builder can filter by your collection.
+        Track the cards you own. Use the Deck Builder toggle to filter by your collection.
       </p>
 
-      {/* Stats bar */}
+      {/* Stats */}
       {!colLoading && (
-        <div className="flex gap-6 mb-6 text-sm">
+        <div className="flex gap-6 mb-6">
           <div>
             <span className="text-2xl font-bold text-amber-400">{ownedEntries.length}</span>
-            <span className="text-gray-500 ml-1.5">unique cards</span>
+            <span className="text-gray-500 text-sm ml-1.5">unique cards</span>
           </div>
           <div>
             <span className="text-2xl font-bold text-amber-400">{totalCopies}</span>
-            <span className="text-gray-500 ml-1.5">total copies</span>
+            <span className="text-gray-500 text-sm ml-1.5">total copies</span>
           </div>
         </div>
       )}
@@ -328,88 +384,206 @@ export default function CollectionPage() {
       {/* Tabs */}
       <div className="flex gap-1 mb-8 bg-gray-900 border border-gray-800 rounded-xl p-1 w-fit">
         {(["mine", "browse"] as Tab[]).map((t) => (
-          <button
-            key={t}
-            onClick={() => setTab(t)}
+          <button key={t} onClick={() => setTab(t)}
             className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-colors ${
-              tab === t
-                ? "bg-amber-500 text-gray-950"
-                : "text-gray-400 hover:text-white"
-            }`}
-          >
+              tab === t ? "bg-amber-500 text-gray-950" : "text-gray-400 hover:text-white"
+            }`}>
             {t === "mine" ? "My Collection" : "Browse & Add"}
           </button>
         ))}
       </div>
 
-      {/* ── MY COLLECTION TAB ── */}
+      {/* ══ MY COLLECTION ══ */}
       {tab === "mine" && (
-        <>
-          {colLoading || ownedLoading ? (
-            <div className="py-16 text-center text-gray-600 text-sm">Loading…</div>
-          ) : ownedCards.length === 0 ? (
-            <div className="py-16 text-center text-gray-600 text-sm">
-              No cards yet —{" "}
-              <button onClick={() => setTab("browse")} className="text-amber-400 hover:underline">
-                Browse & Add
-              </button>{" "}
-              to find cards.
-            </div>
-          ) : (
-            <CardGrid
-              cards={ownedCards}
-              collection={collection}
-              onQtyChange={handleQtyChange}
-            />
-          )}
-        </>
+        colLoading || ownedLoading
+          ? <div className="py-16 text-center text-gray-600 text-sm">Loading…</div>
+          : ownedCards.length === 0
+            ? (
+              <div className="py-16 text-center text-gray-600 text-sm">
+                No cards yet —{" "}
+                <button onClick={() => setTab("browse")} className="text-amber-400 hover:underline">
+                  Browse & Add
+                </button>
+              </div>
+            )
+            : (
+              <div className="flex flex-wrap gap-5">
+                {ownedCards.map((card) => (
+                  <CardTile
+                    key={card.name}
+                    card={card}
+                    qty={collection[card.name.trim().toLowerCase()]?.qty ?? 0}
+                    onQtyChange={handleQtyChange}
+                  />
+                ))}
+              </div>
+            )
       )}
 
-      {/* ── BROWSE & ADD TAB ── */}
+      {/* ══ BROWSE & ADD ══ */}
       {tab === "browse" && (
         <div className="flex flex-col gap-6">
-          {/* Filters */}
-          <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col sm:flex-row gap-3">
-            <input
-              type="text"
-              placeholder="Search card name…"
-              value={query}
-              onChange={(e) => setQuery(e.target.value)}
-              className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500"
-            />
-            <select
-              value={elementFilter}
-              onChange={(e) => setElementFilter(e.target.value)}
-              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-amber-500"
-            >
-              <option value="">All Elements</option>
-              {ELEMENTS.map((el) => <option key={el} value={el}>{el}</option>)}
-            </select>
-            <select
-              value={typeFilter}
-              onChange={(e) => setTypeFilter(e.target.value)}
-              className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-amber-500"
-            >
-              <option value="">All Types</option>
-              {TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
-            </select>
+
+          {/* ── Filters panel ── */}
+          <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 flex flex-col gap-4">
+
+            {/* Search + Sort */}
+            <div className="flex flex-col sm:flex-row gap-3">
+              <input
+                type="text"
+                placeholder="Search card name or text…"
+                value={query}
+                onChange={(e) => setQuery(e.target.value)}
+                className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500"
+              />
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value)}
+                className="bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-amber-500"
+              >
+                {SORTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+              </select>
+            </div>
+
+            {/* Element chips */}
+            <div>
+              <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Element</div>
+              <div className="flex flex-wrap gap-2">
+                {ELEMENTS.map((el) => (
+                  <Chip
+                    key={el}
+                    label={el}
+                    active={elements.includes(el)}
+                    colour={EL_COLOUR[el]}
+                    onClick={() => toggleEl(el)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Type chips */}
+            <div>
+              <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Type</div>
+              <div className="flex flex-wrap gap-2">
+                {TYPES.map((t) => (
+                  <Chip key={t} label={t} active={types.includes(t)} onClick={() => toggleType(t)} />
+                ))}
+              </div>
+            </div>
+
+            {/* Rarity chips */}
+            <div>
+              <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Rarity</div>
+              <div className="flex flex-wrap gap-2">
+                {RARITIES.map((r) => (
+                  <Chip
+                    key={r}
+                    label={r}
+                    active={rarities.includes(r)}
+                    colour={`bg-gray-800 border ${
+                      r === "Unique" ? "text-amber-400 border-amber-500/50 bg-amber-500/10" :
+                      r === "Elite"  ? "text-sky-400 border-sky-500/50 bg-sky-500/10" :
+                      r === "Exceptional" ? "text-green-400 border-green-500/50 bg-green-500/10" :
+                      "text-gray-300 border-gray-500"
+                    }`}
+                    onClick={() => toggleRarity(r)}
+                  />
+                ))}
+              </div>
+            </div>
+
+            {/* Set + Owned toggle row */}
+            <div className="flex flex-wrap items-center gap-3">
+              <div>
+                <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Set</div>
+                <div className="flex flex-wrap gap-2">
+                  {SETS.map((s) => (
+                    <Chip
+                      key={s}
+                      label={s}
+                      active={set === s}
+                      onClick={() => setSet((prev) => prev === s ? "" : s)}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {isSignedIn && (
+                <div className="sm:ml-auto mt-4 sm:mt-0">
+                  <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Show</div>
+                  <button
+                    onClick={() => setOwnedOnly((v) => !v)}
+                    className={`flex items-center gap-2 px-3 py-1.5 rounded-lg border text-sm font-medium transition-colors ${
+                      ownedOnly
+                        ? "bg-amber-500/15 border-amber-500/50 text-amber-400"
+                        : "bg-gray-800 border-gray-700 text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    <span className={`w-8 h-4 rounded-full transition-colors relative ${ownedOnly ? "bg-amber-500" : "bg-gray-600"}`}>
+                      <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${ownedOnly ? "left-4" : "left-0.5"}`} />
+                    </span>
+                    Owned only
+                  </button>
+                </div>
+              )}
+            </div>
+
+            {/* Active filter summary + clear */}
+            {(elements.length > 0 || types.length > 0 || rarities.length > 0 || set || query) && (
+              <div className="flex items-center justify-between border-t border-gray-800 pt-3">
+                <span className="text-xs text-gray-500">
+                  {browseTotal} card{browseTotal !== 1 ? "s" : ""} match
+                </span>
+                <button
+                  onClick={() => { setQuery(""); setElements([]); setTypes([]); setRarities([]); setSet(""); }}
+                  className="text-xs text-amber-400 hover:text-amber-300 font-medium"
+                >
+                  Clear all filters
+                </button>
+              </div>
+            )}
           </div>
 
-          {/* Results */}
-          {!query && !elementFilter && !typeFilter ? (
-            <div className="py-12 text-center text-gray-600 text-sm">
-              Search or filter to find cards to add to your collection.
-            </div>
-          ) : searching ? (
-            <div className="py-12 text-center text-gray-600 text-sm">Searching…</div>
-          ) : results.length === 0 ? (
+          {/* ── Results grid ── */}
+          {browseLoading ? (
+            <div className="py-12 text-center text-gray-600 text-sm">Loading…</div>
+          ) : browseCards.length === 0 ? (
             <div className="py-12 text-center text-gray-600 text-sm">No cards found.</div>
           ) : (
-            <CardGrid
-              cards={results}
-              collection={collection}
-              onQtyChange={handleQtyChange}
-            />
+            <div className="flex flex-wrap gap-5">
+              {browseCards.map((card) => (
+                <CardTile
+                  key={card.name}
+                  card={card}
+                  qty={collection[card.name.trim().toLowerCase()]?.qty ?? 0}
+                  onQtyChange={handleQtyChange}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* ── Pagination ── */}
+          {totalPages > 1 && !browseLoading && (
+            <div className="flex items-center justify-between pt-2">
+              <button
+                onClick={() => setPage((p) => Math.max(0, p - 1))}
+                disabled={page === 0}
+                className="px-4 py-2 text-sm font-medium bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-white rounded-lg transition-colors"
+              >
+                ← Previous
+              </button>
+              <span className="text-sm text-gray-400">
+                Page {page + 1} of {totalPages}
+                <span className="text-gray-600 ml-2">({browseTotal} cards total)</span>
+              </span>
+              <button
+                onClick={() => setPage((p) => Math.min(totalPages - 1, p + 1))}
+                disabled={page >= totalPages - 1}
+                className="px-4 py-2 text-sm font-medium bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-white rounded-lg transition-colors"
+              >
+                Next →
+              </button>
+            </div>
           )}
         </div>
       )}

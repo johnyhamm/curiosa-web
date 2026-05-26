@@ -683,11 +683,11 @@ export default function DeckBuilderPage() {
         if (elementFilter) p.set("element", elementFilter);
         const res = await fetch(`/api/cards/search?${p}`);
         if (res.ok) {
-          const all = (await res.json()) as Card[];
+          const data = (await res.json()) as { results: Card[] };
           // When collection-only mode is on, filter to owned cards
           const filtered = collectionOnly
-            ? all.filter((c) => (collection[c.name.trim().toLowerCase()]?.qty ?? 0) > 0)
-            : all;
+            ? data.results.filter((c) => (collection[c.name.trim().toLowerCase()]?.qty ?? 0) > 0)
+            : data.results;
           setResults(filtered);
         }
       } catch { /* ignore */ }

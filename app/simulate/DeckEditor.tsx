@@ -234,7 +234,7 @@ export function DeckEditor({ deckValue, accentColor, onOverride }: DeckEditorPro
         const res = await fetch(
           `/api/cards/search?q=${encodeURIComponent(addQuery.trim())}&limit=6`
         );
-        if (res.ok) setAddResults((await res.json()) as Card[]);
+        if (res.ok) setAddResults(((await res.json()) as { results: Card[] }).results);
       } catch { /* ignore */ }
       finally { setAddLoading(false); }
     }, 300);

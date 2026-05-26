@@ -244,7 +244,7 @@ export default function Home() {
             { label: "Find Organized Play", href: "https://play.sorcerytcg.com",     icon: "🎮" },
             { label: "Curiosa.io",         href: "https://curiosa.io",              icon: "📚" },
             { label: "Discord",            href: "https://discord.gg/beEMKYRz",     icon: "💬" },
-            { label: "TCGplayer",          href: "https://tcgplayer.com",           icon: "🛒" },
+            { label: "TCGplayer",          href: "https://www.tcgplayer.com/search/sorcery-contested-realm/product?productLineName=sorcery-contested-realm&view=grid", icon: "🛒" },
             { label: "Team Covenant",      href: "https://teamcovenant.com",        icon: "⚔️" },
             { label: "Facebook Community", href: "https://www.facebook.com/share/g/1BsFJ16Re3/", icon: "👥" },
           ].map(({ label, href, icon }) => (

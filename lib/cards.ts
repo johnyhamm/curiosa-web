@@ -134,7 +134,7 @@ export async function loadCards(): Promise<Card[]> {
     if (sinceLastCheck < CHECK_INTERVAL_MS) {
       cardCache = disk.cards;
       const days = Math.round(sinceLastCheck / 86_400_000);
-      console.error(
+      console.log(
         `[curiosa-web] Loaded ${cardCache.length} cards from disk cache ` +
         `(last checked ${days}d ago)`
       );
@@ -148,13 +148,13 @@ export async function loadCards(): Promise<Card[]> {
     const cards = JSON.parse(raw) as Card[];
     if (cards.length > 0) {
       cardCache = cards;
-      console.error(`[curiosa-web] Loaded ${cards.length} cards from bundled file`);
+      console.log(`[curiosa-web] Loaded ${cards.length} cards from bundled file`);
       return cardCache;
     }
   } catch { /* file not present — fall through to API */ }
 
   // 4. Time to check the API — use a conditional GET if we have an ETag
-  console.error("[curiosa-web] Checking API for updates...");
+  console.log("[curiosa-web] Checking API for updates...");
   const headers: Record<string, string> = {};
   if (disk?.etag) headers["If-None-Match"] = disk.etag;
 
@@ -162,7 +162,7 @@ export async function loadCards(): Promise<Card[]> {
 
   // 304 Not Modified — data unchanged, just bump checkedAt and return cached cards
   if (res.status === 304 && disk) {
-    console.error("[curiosa-web] API returned 304 — no changes, using cached data");
+    console.log("[curiosa-web] API returned 304 — no changes, using cached data");
     writeDiskCache({ ...disk, checkedAt: new Date().toISOString() });
     cardCache = disk.cards;
     return cardCache;
@@ -178,10 +178,10 @@ export async function loadCards(): Promise<Card[]> {
   if (disk?.cards.length) {
     const changed = diffAndLog(disk.cards, freshCards);
     if (!changed) {
-      console.error("[curiosa-web] API returned 200 but card data is identical");
+      console.log("[curiosa-web] API returned 200 but card data is identical");
     }
   } else {
-    console.error(`[curiosa-web] Initial fetch: loaded ${freshCards.length} cards`);
+    console.log(`[curiosa-web] Initial fetch: loaded ${freshCards.length} cards`);
   }
 
   cardCache = freshCards;
