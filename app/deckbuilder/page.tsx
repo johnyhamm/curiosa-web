@@ -24,6 +24,19 @@ interface DeckEntry {
 const SPELLBOOK_TYPES = ["Minion", "Magic", "Artifact", "Aura"];
 const STORAGE_KEY = "sorcerysim:deckbuilder:v1";
 
+/** Filter chip data (matches collection page) */
+const F_ELEMENTS = ["Water", "Earth", "Fire", "Air"];
+const F_TYPES    = ["Avatar", "Site", "Minion", "Magic", "Artifact", "Aura"];
+const F_RARITIES = ["Ordinary", "Exceptional", "Elite", "Unique"];
+const F_SETS     = ["Alpha", "Beta", "Arthurian Legends", "Dragonlord", "Gothic", "Promotional"];
+
+const F_EL_COLOUR: Record<string, string> = {
+  Water: "bg-sky-900/50 text-sky-400 border-sky-700/40",
+  Earth: "bg-yellow-900/40 text-yellow-500 border-yellow-700/40",
+  Fire:  "bg-orange-900/40 text-orange-400 border-orange-700/40",
+  Air:   "bg-violet-900/40 text-violet-400 border-violet-700/40",
+};
+
 /** Constructed format minimums per the official rulebook. */
 const MIN_SPELLBOOK = 60; // Minions, Magic, Artifacts, Auras
 const MIN_ATLAS     = 30; // Sites only
@@ -96,6 +109,26 @@ function ThresholdPips({ th }: { th: Card["guardian"]["thresholds"] | undefined 
         </span>
       ))}
     </span>
+  );
+}
+
+// ─── Chip toggle ─────────────────────────────────────────────────────────────
+
+function Chip({ label, active, colour, onClick }: {
+  label: string; active: boolean; colour?: string; onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`px-2.5 py-0.5 rounded-full text-xs font-semibold border transition-colors ${
+        active
+          ? colour ?? "bg-amber-500/20 text-amber-400 border-amber-500/50"
+          : "bg-gray-800 text-gray-500 border-gray-700 hover:text-gray-300 hover:border-gray-600"
+      }`}
+    >
+      {label}
+    </button>
   );
 }
 
@@ -504,12 +537,14 @@ export default function DeckBuilderPage() {
   const [entries, setEntries] = useState<DeckEntry[]>([]);
 
   // Search state
-  const [query, setQuery] = useState("");
-  const [typeFilter, setTypeFilter] = useState("");
-  const [elementFilter, setElementFilter] = useState("");
-  const [results, setResults] = useState<Card[]>([]);
-  const [searching, setSearching] = useState(false);
-  const [hasSearched, setHasSearched] = useState(false);
+  const [query,          setQuery]          = useState("");
+  const [typeFilters,    setTypeFilters]    = useState<string[]>([]);
+  const [elementFilters, setElementFilters] = useState<string[]>([]);
+  const [rarityFilters,  setRarityFilters]  = useState<string[]>([]);
+  const [setFilter,      setSetFilter]      = useState("");
+  const [results,        setResults]        = useState<Card[]>([]);
+  const [searching,      setSearching]      = useState(false);
+  const [hasSearched,    setHasSearched]    = useState(false);
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   // Collection state
@@ -667,7 +702,7 @@ export default function DeckBuilderPage() {
     if (searchTimer.current) clearTimeout(searchTimer.current);
     const q = query.trim();
 
-    if (!q && !typeFilter && !elementFilter) {
+    if (!q && !typeFilters.length && !elementFilters.length && !rarityFilters.length && !setFilter) {
       setResults([]);
       setHasSearched(false);
       return;
@@ -678,16 +713,34 @@ export default function DeckBuilderPage() {
       setHasSearched(true);
       try {
         const p = new URLSearchParams({ limit: "60" });
-        if (q)             p.set("q", q);
-        if (typeFilter)    p.set("type", typeFilter);
-        if (elementFilter) p.set("element", elementFilter);
+        if (q)                          p.set("q", q);
+        if (typeFilters.length === 1)    p.set("type", typeFilters[0]);
+        if (elementFilters.length === 1) p.set("element", elementFilters[0]);
+        if (rarityFilters.length === 1)  p.set("rarity", rarityFilters[0]);
+        if (setFilter)                   p.set("set", setFilter);
         const res = await fetch(`/api/cards/search?${p}`);
         if (res.ok) {
           const data = (await res.json()) as { results: Card[] };
-          // When collection-only mode is on, filter to owned cards
+          let cards = data.results;
+
+          // Client-side multi-select filtering
+          if (elementFilters.length > 1)
+            cards = cards.filter((c) =>
+              elementFilters.every((el) => c.elements.toLowerCase().includes(el.toLowerCase()))
+            );
+          if (typeFilters.length > 1)
+            cards = cards.filter((c) =>
+              typeFilters.some((t) => c.guardian.type.toLowerCase().includes(t.toLowerCase()))
+            );
+          if (rarityFilters.length > 1)
+            cards = cards.filter((c) =>
+              rarityFilters.some((r) => (c.guardian.rarity ?? "").toLowerCase() === r.toLowerCase())
+            );
+
+          // Collection-only filter
           const filtered = collectionOnly
-            ? data.results.filter((c) => (collection[c.name.trim().toLowerCase()]?.qty ?? 0) > 0)
-            : data.results;
+            ? cards.filter((c) => (collection[c.name.trim().toLowerCase()]?.qty ?? 0) > 0)
+            : cards;
           setResults(filtered);
         }
       } catch { /* ignore */ }
@@ -695,7 +748,7 @@ export default function DeckBuilderPage() {
     }, 300);
 
     return () => { if (searchTimer.current) clearTimeout(searchTimer.current); };
-  }, [query, typeFilter, elementFilter, collectionOnly, collection]);
+  }, [query, typeFilters, elementFilters, rarityFilters, setFilter, collectionOnly, collection]);
 
   // ── Deck mutations ────────────────────────────────────────────────────────
 
@@ -811,7 +864,7 @@ export default function DeckBuilderPage() {
           <div className="bg-gray-900 border border-gray-800 rounded-xl flex flex-col overflow-hidden">
 
             {/* Search controls */}
-            <div className="p-4 flex flex-col gap-2 border-b border-gray-800">
+            <div className="p-4 flex flex-col gap-3 border-b border-gray-800">
               <input
                 type="text"
                 value={query}
@@ -820,29 +873,68 @@ export default function DeckBuilderPage() {
                 className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2.5 text-sm text-white
                   placeholder-gray-500 focus:outline-none focus:border-amber-500 transition-colors"
               />
-              <div className="flex gap-2">
-                <select
-                  value={typeFilter}
-                  onChange={(e) => setTypeFilter(e.target.value)}
-                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300
-                    focus:outline-none focus:border-amber-500 transition-colors"
-                >
-                  <option value="">All types</option>
-                  {["Avatar", "Site", "Minion", "Magic", "Artifact", "Aura"].map((t) => (
-                    <option key={t}>{t}</option>
+
+              {/* Element chips */}
+              <div>
+                <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-1.5">Element</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {F_ELEMENTS.map((el) => (
+                    <Chip
+                      key={el} label={el}
+                      active={elementFilters.includes(el)}
+                      colour={F_EL_COLOUR[el]}
+                      onClick={() => setElementFilters((p) => p.includes(el) ? p.filter((x) => x !== el) : [...p, el])}
+                    />
                   ))}
-                </select>
-                <select
-                  value={elementFilter}
-                  onChange={(e) => setElementFilter(e.target.value)}
-                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300
-                    focus:outline-none focus:border-amber-500 transition-colors"
-                >
-                  <option value="">All elements</option>
-                  {["Fire", "Water", "Earth", "Air"].map((el) => (
-                    <option key={el}>{el}</option>
+                </div>
+              </div>
+
+              {/* Type chips */}
+              <div>
+                <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-1.5">Type</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {F_TYPES.map((t) => (
+                    <Chip
+                      key={t} label={t}
+                      active={typeFilters.includes(t)}
+                      onClick={() => setTypeFilters((p) => p.includes(t) ? p.filter((x) => x !== t) : [...p, t])}
+                    />
                   ))}
-                </select>
+                </div>
+              </div>
+
+              {/* Rarity chips */}
+              <div>
+                <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-1.5">Rarity</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {F_RARITIES.map((r) => (
+                    <Chip
+                      key={r} label={r}
+                      active={rarityFilters.includes(r)}
+                      colour={`bg-gray-800 border ${
+                        r === "Unique"      ? "text-amber-400 border-amber-500/50 bg-amber-500/10" :
+                        r === "Elite"       ? "text-sky-400 border-sky-500/50 bg-sky-500/10" :
+                        r === "Exceptional" ? "text-green-400 border-green-500/50 bg-green-500/10" :
+                        "text-gray-300 border-gray-500"
+                      }`}
+                      onClick={() => setRarityFilters((p) => p.includes(r) ? p.filter((x) => x !== r) : [...p, r])}
+                    />
+                  ))}
+                </div>
+              </div>
+
+              {/* Set chips */}
+              <div>
+                <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-1.5">Set</div>
+                <div className="flex flex-wrap gap-1.5">
+                  {F_SETS.map((s) => (
+                    <Chip
+                      key={s} label={s}
+                      active={setFilter === s}
+                      onClick={() => setSetFilter((prev) => prev === s ? "" : s)}
+                    />
+                  ))}
+                </div>
               </div>
 
               {/* Collection toggle — only shown when signed in */}
@@ -859,6 +951,17 @@ export default function DeckBuilderPage() {
                   <span className={`w-8 h-4 rounded-full transition-colors ${collectionOnly ? "bg-amber-500" : "bg-gray-600"} relative`}>
                     <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${collectionOnly ? "left-4" : "left-0.5"}`} />
                   </span>
+                </button>
+              )}
+
+              {/* Active filter clear */}
+              {(typeFilters.length > 0 || elementFilters.length > 0 || rarityFilters.length > 0 || setFilter) && (
+                <button
+                  type="button"
+                  onClick={() => { setTypeFilters([]); setElementFilters([]); setRarityFilters([]); setSetFilter(""); }}
+                  className="text-xs text-amber-400 hover:text-amber-300 font-medium text-left"
+                >
+                  Clear all filters
                 </button>
               )}
             </div>
