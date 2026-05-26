@@ -14,6 +14,13 @@ const SITE_H   = Math.round(CARD_W * (63 / 88));   // ≈ 107 — landscape cont
 const SITE_IW  = SITE_H;                            // inner portrait element width
 const SITE_IH  = CARD_W;                            // inner portrait element height
 
+// 2× hover preview
+const HOVER_W      = CARD_W * 2;                     // 300
+const HOVER_H      = Math.round(CARD_H * 2);          // ≈ 420
+const HOVER_SITE_H = Math.round(SITE_H * 2);          // ≈ 214
+const HOVER_SITE_IW = HOVER_SITE_H;                   // inner portrait width for hover site
+const HOVER_SITE_IH = HOVER_W;                        // inner portrait height for hover site
+
 const PAGE_SIZE = 20;
 
 // ─── Filter options (matching curiosa.io style) ───────────────────────────────
@@ -120,14 +127,92 @@ function CardImage({ card }: { card: Card }) {
   );
 }
 
+// ─── Hover preview (fixed overlay, 2× thumbnail size) ────────────────────────
+
+function HoverPreview({ card, x, y }: { card: Card; x: number; y: number }) {
+  const imgUrl = cardImageUrl(card.name);
+  const isSite = card.guardian.type === "Site";
+  const [failed, setFailed] = useState(false);
+
+  if (!imgUrl || failed) return null;
+
+  const displayH = isSite ? HOVER_SITE_H : HOVER_H;
+  const vw = typeof window !== "undefined" ? window.innerWidth  : 1200;
+  const vh = typeof window !== "undefined" ? window.innerHeight : 800;
+  const MARGIN = 12;
+
+  // Prefer right of cursor; flip left if near right edge
+  let left = x + 24;
+  if (left + HOVER_W + MARGIN > vw) left = x - HOVER_W - 24;
+
+  // Centre vertically on cursor; clamp to viewport
+  let top = y - displayH / 2;
+  if (top < MARGIN) top = MARGIN;
+  if (top + displayH + MARGIN > vh) top = vh - displayH - MARGIN;
+
+  return (
+    <div
+      className="fixed pointer-events-none z-[100]"
+      style={{
+        left,
+        top,
+        filter: "drop-shadow(0 24px 48px rgba(0,0,0,0.85))",
+        transition: "opacity 0.1s",
+      }}
+    >
+      {isSite ? (
+        <div
+          className="relative overflow-hidden rounded-xl ring-2 ring-amber-500/30"
+          style={{ width: HOVER_W, height: HOVER_SITE_H }}
+        >
+          <img
+            src={imgUrl}
+            alt={card.name}
+            onError={() => setFailed(true)}
+            style={{
+              position: "absolute",
+              left: "50%", top: "50%",
+              width: HOVER_SITE_IW, height: HOVER_SITE_IH,
+              maxWidth: "none",
+              objectFit: "cover",
+              transform: `translate(${-HOVER_SITE_IW / 2}px, ${-HOVER_SITE_IH / 2}px) rotate(90deg)`,
+            }}
+          />
+        </div>
+      ) : (
+        <img
+          src={imgUrl}
+          alt={card.name}
+          onError={() => setFailed(true)}
+          className="rounded-xl block ring-2 ring-amber-500/30"
+          style={{ width: HOVER_W, height: HOVER_H, objectFit: "cover" }}
+        />
+      )}
+    </div>
+  );
+}
+
 // ─── Card tile ────────────────────────────────────────────────────────────────
 
 function CardTile({
   card, qty, onQtyChange,
-}: { card: Card; qty: number; onQtyChange: (name: string, n: number) => void }) {
+  onHoverStart, onHoverMove, onHoverEnd,
+}: {
+  card: Card;
+  qty: number;
+  onQtyChange: (name: string, n: number) => void;
+  onHoverStart?: (card: Card, x: number, y: number) => void;
+  onHoverMove?:  (x: number, y: number) => void;
+  onHoverEnd?:   () => void;
+}) {
   const rarity = card.guardian.rarity?.toLowerCase() ?? "";
   return (
-    <div className="flex flex-col gap-2 items-center">
+    <div
+      className="flex flex-col gap-2 items-center"
+      onMouseEnter={(e) => onHoverStart?.(card, e.clientX, e.clientY)}
+      onMouseMove={(e)  => onHoverMove?.(e.clientX, e.clientY)}
+      onMouseLeave={() => onHoverEnd?.()}
+    >
       <div className="relative" style={{ width: CARD_W }}>
         <CardImage card={card} />
         {qty > 0 && (
@@ -197,6 +282,10 @@ export default function CollectionPage() {
   const [browseTotal, setBrowseTotal]   = useState(0);
   const [page, setPage]                 = useState(0);
   const [browseLoading, setBrowseLoading] = useState(false);
+
+  // Hover preview
+  const [hoveredCard, setHoveredCard] = useState<Card | null>(null);
+  const [hoverPos, setHoverPos]       = useState({ x: 0, y: 0 });
 
   const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimer   = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
@@ -414,10 +503,18 @@ export default function CollectionPage() {
                     card={card}
                     qty={collection[card.name.trim().toLowerCase()]?.qty ?? 0}
                     onQtyChange={handleQtyChange}
+                    onHoverStart={(c, x, y) => { setHoveredCard(c); setHoverPos({ x, y }); }}
+                    onHoverMove={(x, y)      => setHoverPos({ x, y })}
+                    onHoverEnd={() => setHoveredCard(null)}
                   />
                 ))}
               </div>
             )
+      )}
+
+      {/* ── Hover preview ── */}
+      {hoveredCard && (
+        <HoverPreview card={hoveredCard} x={hoverPos.x} y={hoverPos.y} />
       )}
 
       {/* ══ BROWSE & ADD ══ */}
@@ -557,6 +654,9 @@ export default function CollectionPage() {
                   card={card}
                   qty={collection[card.name.trim().toLowerCase()]?.qty ?? 0}
                   onQtyChange={handleQtyChange}
+                  onHoverStart={(c, x, y) => { setHoveredCard(c); setHoverPos({ x, y }); }}
+                  onHoverMove={(x, y)      => setHoverPos({ x, y })}
+                  onHoverEnd={() => setHoveredCard(null)}
                 />
               ))}
             </div>
