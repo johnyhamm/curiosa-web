@@ -32,7 +32,7 @@ export function FeedbackProvider({ children }: { children: React.ReactNode }) {
       <button
         onClick={openFeedback}
         aria-label="Send feedback"
-        className="fixed bottom-5 right-5 z-50 flex items-center gap-2
+        className="fixed bottom-5 left-5 z-50 flex items-center gap-2
           px-4 py-2.5 rounded-full
           bg-gray-800 hover:bg-gray-700
           border border-gray-700 hover:border-gray-600
