@@ -42,16 +42,21 @@ export function normalizeCardName(name: string): string {
  * Fetch every card in a user's collection.
  * Returns an empty map if Redis is not configured or the user has no collection.
  */
+type RawEntry = { qty: number; foilQty: number; updatedAt: string };
+
 export async function getCollection(userId: string): Promise<CollectionMap> {
   if (!redis) return {};
 
-  const raw = await redis.hgetall<Record<string, string>>(colKey(userId));
+  // Upstash automatically deserializes stored JSON, so values arrive as objects.
+  // We also handle the legacy string case (data stored before this fix).
+  const raw = await redis.hgetall<Record<string, RawEntry | string>>(colKey(userId));
   if (!raw) return {};
 
   const result: CollectionMap = {};
   for (const [field, value] of Object.entries(raw)) {
     try {
-      const parsed = JSON.parse(value) as { qty: number; foilQty: number; updatedAt: string };
+      const parsed: RawEntry =
+        typeof value === "string" ? JSON.parse(value) : value;
       result[field] = { cardName: field, ...parsed };
     } catch {
       // skip malformed entries
@@ -82,12 +87,13 @@ export async function setCardQty(
     return;
   }
 
-  const entry = {
+  const entry: RawEntry = {
     qty:      Math.max(0, qty),
     foilQty:  Math.max(0, foilQty),
     updatedAt: new Date().toISOString(),
   };
-  await redis.hset(key, { [field]: JSON.stringify(entry) });
+  // Store as plain object — Upstash serializes it and deserializes on read.
+  await redis.hset(key, { [field]: entry });
 }
 
 /**
@@ -120,7 +126,7 @@ export async function bulkUpdate(
     if (qty <= 0 && foilQty <= 0) {
       dels.push(field);
     } else {
-      sets[field] = JSON.stringify({ qty: Math.max(0, qty), foilQty: Math.max(0, foilQty), updatedAt: now });
+      sets[field] = { qty: Math.max(0, qty), foilQty: Math.max(0, foilQty), updatedAt: now } as unknown as string;
     }
   }
 
