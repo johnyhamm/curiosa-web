@@ -340,8 +340,11 @@ export default function CollectionPage() {
   // Hover preview
   const [hoveredCard, setHoveredCard] = useState<Card | null>(null);
 
-  const searchTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const saveTimer   = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const searchTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const saveTimer      = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  // Tracks qty values that have been changed locally but not yet persisted to Redis.
+  // Flushed immediately via sendBeacon on page unload so mobile navigations don't lose data.
+  const pendingWrites  = useRef<Map<string, { cardName: string; qty: number }>>(new Map());
 
   // ── Load collection ──────────────────────────────────────────────────────
 
@@ -446,10 +449,35 @@ export default function CollectionPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [tab]);
 
+  // ── Flush pending writes on page unload (mobile navigation safety) ──────
+  // sendBeacon is fire-and-forget but guaranteed to complete even if the page
+  // is closed or the user navigates away, unlike setTimeout + fetch.
+
+  useEffect(() => {
+    function flushOnUnload() {
+      if (pendingWrites.current.size === 0) return;
+      // Cancel pending debounce timers — sendBeacon handles them now.
+      for (const timer of saveTimer.current.values()) clearTimeout(timer);
+      saveTimer.current.clear();
+      const cards = Array.from(pendingWrites.current.values());
+      pendingWrites.current.clear();
+      const blob = new Blob([JSON.stringify({ cards })], { type: "application/json" });
+      navigator.sendBeacon("/api/collection/bulk", blob);
+    }
+    window.addEventListener("beforeunload", flushOnUnload);
+    // Also flush when the React component unmounts (e.g. client-side navigation).
+    return () => {
+      window.removeEventListener("beforeunload", flushOnUnload);
+      flushOnUnload();
+    };
+  }, []);
+
   // ── Quantity change ──────────────────────────────────────────────────────
 
   const handleQtyChange = useCallback((cardName: string, newQty: number) => {
     const key = cardName.trim().toLowerCase();
+    // Track as pending immediately so flushOnUnload can pick it up.
+    pendingWrites.current.set(key, { cardName, qty: newQty });
     setCollection((prev) => {
       const next = { ...prev };
       if (newQty <= 0) { delete next[key]; }
@@ -460,10 +488,12 @@ export default function CollectionPage() {
     if (existing) clearTimeout(existing);
     const t = setTimeout(async () => {
       saveTimer.current.delete(key);
+      pendingWrites.current.delete(key); // Remove once persisted.
       await fetch("/api/collection", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ cardName, qty: newQty }),
+        keepalive: true, // Continue request even if page is closed mid-flight.
       });
     }, 600);
     saveTimer.current.set(key, t);
