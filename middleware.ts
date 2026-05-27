@@ -2,16 +2,15 @@ import { clerkMiddleware } from "@clerk/nextjs/server";
 import { NextResponse } from "next/server";
 import type { NextRequest } from "next/server";
 
-// Clerk middleware only runs when API keys are present in the environment.
-// Without keys the site works exactly as before auth was added — auth features
-// are simply unavailable until the Clerk env vars are added to Vercel.
+// Clerk v7 requires the middleware export to BE clerkMiddleware() directly —
+// wrapping it in a custom function breaks its internal request-context detection
+// and causes auth() to throw in API routes.
+// When Clerk keys are absent we fall back to a plain pass-through.
 const clerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
-const withClerk = clerkConfigured ? clerkMiddleware() : null;
 
-export default function middleware(req: NextRequest, ctx: Parameters<NonNullable<typeof withClerk>>[1]) {
-  if (!withClerk) return NextResponse.next();
-  return withClerk(req, ctx);
-}
+export default clerkConfigured
+  ? clerkMiddleware()
+  : (_req: NextRequest) => NextResponse.next();
 
 export const config = {
   matcher: [

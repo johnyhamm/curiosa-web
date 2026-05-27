@@ -354,10 +354,14 @@ export default function CollectionPage() {
       const res = await fetch("/api/collection");
       if (res.ok) {
         const data = (await res.json()) as { collection: CollectionMap };
+        console.log("[Collection] Loaded", Object.keys(data.collection).length, "cards from server");
         setCollection(data.collection);
+      } else {
+        console.error("[Collection] Load failed", res.status, await res.text().catch(() => ""));
       }
-    } catch { /* ignore */ }
-    finally { setColLoading(false); }
+    } catch (err) {
+      console.error("[Collection] Load error", err);
+    } finally { setColLoading(false); }
   }, []);
 
   useEffect(() => {
@@ -489,12 +493,22 @@ export default function CollectionPage() {
     const t = setTimeout(async () => {
       saveTimer.current.delete(key);
       pendingWrites.current.delete(key); // Remove once persisted.
-      await fetch("/api/collection", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ cardName, qty: newQty }),
-        keepalive: true, // Continue request even if page is closed mid-flight.
-      });
+      try {
+        const res = await fetch("/api/collection", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ cardName, qty: newQty }),
+          keepalive: true, // Continue request even if page is closed mid-flight.
+        });
+        if (res.ok) {
+          console.log("[Collection] Saved", cardName, "qty:", newQty);
+        } else {
+          const body = await res.text().catch(() => "");
+          console.error("[Collection] Save failed", res.status, body, "—", cardName, "qty:", newQty);
+        }
+      } catch (err) {
+        console.error("[Collection] Save error", err, "—", cardName, "qty:", newQty);
+      }
     }, 600);
     saveTimer.current.set(key, t);
   }, []);

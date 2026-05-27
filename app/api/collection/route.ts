@@ -21,6 +21,7 @@ export async function GET() {
   if (!userId) return NextResponse.json({ error: "Unauthorized" }, { status: 401 });
 
   const collection = await getCollection(userId);
+  console.log("[Collection GET]", userId.slice(0, 8), "→", Object.keys(collection).length, "cards");
   return NextResponse.json({ collection });
 }
 
@@ -49,6 +50,7 @@ export async function POST(request: NextRequest) {
   }
 
   await setCardQty(userId, cardName, Math.max(0, qty), Math.max(0, foilQty));
+  console.log("[Collection POST]", userId.slice(0, 8), "→", cardName, "qty:", qty);
   return NextResponse.json({ ok: true, cardName: normalizeCardName(cardName), qty, foilQty });
 }
 
