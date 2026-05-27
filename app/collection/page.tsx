@@ -379,9 +379,11 @@ export default function CollectionPage() {
   const [collection, setCollection] = useState<CollectionMap>({});
   const [colLoading, setColLoading] = useState(true);
 
-  // My Collection tab
-  const [ownedCards, setOwnedCards]     = useState<Card[]>([]);
-  const [ownedLoading, setOwnedLoading] = useState(false);
+  // Full card DB — loaded once from /cards-data.json, used for both "My Collection"
+  // display and the collection browse. Replaces per-request batch fetches so that
+  // collections with hundreds of unique cards display correctly.
+  const [allCardData, setAllCardData]       = useState<Card[]>([]);
+  const [allCardsLoading, setAllCardsLoading] = useState(true);
 
   // Browse tab — filter state
   const [query, setQuery]               = useState("");
@@ -501,31 +503,34 @@ export default function CollectionPage() {
     }
   }, [loadCollection]);
 
-  // ── Load card data for owned cards ───────────────────────────────────────
-  // Only re-fetch when the *set of owned card names* changes, not on every qty
-  // update — otherwise every +/− tap triggers a full reload and loading spinner.
-
-  const ownedNamesKey = useMemo(
-    () =>
-      Object.values(collection)
-        .filter((e) => e.qty > 0)
-        .map((e) => e.cardName)
-        .sort()
-        .join("|"),
-    [collection],
-  );
+  // ── Load full card DB once ───────────────────────────────────────────────
+  // cards-data.json is bundled in /public and served as a static file (brotli
+  // compressed to ~250 KB). Loading it once eliminates the 200-card batch limit
+  // and means qty changes never require a network round-trip.
 
   useEffect(() => {
-    if (!ownedNamesKey) { setOwnedCards([]); return; }
-    setOwnedLoading(true);
-    const names = ownedNamesKey.split("|").join(",");
-    fetch(`/api/cards/batch?names=${encodeURIComponent(names)}`)
+    fetch("/cards-data.json")
       .then((r) => (r.ok ? r.json() : []))
-      .then((cards) => setOwnedCards((cards as Card[]).sort((a, b) => a.name.localeCompare(b.name))))
-      .catch(() => setOwnedCards([]))
-      .finally(() => setOwnedLoading(false));
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [ownedNamesKey]);
+      .then((cards: Card[]) => setAllCardData(cards))
+      .catch(() => setAllCardData([]))
+      .finally(() => setAllCardsLoading(false));
+  }, []);
+
+  // ── Derive owned cards from collection + card DB ─────────────────────────
+  // Pure computation — no loading state, no network call. Updates instantly
+  // when qty changes.
+
+  const ownedCards = useMemo(() => {
+    if (allCardData.length === 0) return [];
+    const ownedKeys = new Set(
+      Object.values(collection)
+        .filter((e) => e.qty > 0)
+        .map((e) => e.cardName),
+    );
+    return allCardData
+      .filter((c) => ownedKeys.has(c.name.toLowerCase().trim()))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [allCardData, collection]);
 
   // ── Delete entire collection ──────────────────────────────────────────────
 
@@ -534,8 +539,7 @@ export default function CollectionPage() {
     try {
       const res = await fetch("/api/collection/all", { method: "DELETE" });
       if (res.ok) {
-        setCollection({});
-        setOwnedCards([]);
+        setCollection({});          // ownedCards auto-empties via useMemo
         setShowDeleteConfirm(false);
       }
     } finally {
@@ -863,7 +867,7 @@ export default function CollectionPage() {
 
       {/* ══ MY COLLECTION ══ */}
       {tab === "mine" && (
-        colLoading || ownedLoading
+        colLoading || allCardsLoading
           ? <div className="py-16 text-center text-gray-600 text-sm">Loading…</div>
           : ownedCards.length === 0
             ? (
