@@ -1,4 +1,5 @@
 import { type NextRequest, NextResponse } from "next/server";
+import { getCardImageId } from "@/lib/card-images";
 
 const DRIVE_BASE = "https://lh3.googleusercontent.com/d";
 
@@ -6,7 +7,11 @@ const DRIVE_BASE = "https://lh3.googleusercontent.com/d";
 const VALID_ID = /^[A-Za-z0-9_\-]{10,}$/;
 
 export async function GET(req: NextRequest) {
-  const id = req.nextUrl.searchParams.get("id");
+  // Support ?name=Card+Name (for mobile clients) in addition to ?id=...
+  const nameParam = req.nextUrl.searchParams.get("name");
+  const id = nameParam
+    ? getCardImageId(nameParam)
+    : req.nextUrl.searchParams.get("id");
 
   if (!id || !VALID_ID.test(id)) {
     return new NextResponse("Bad Request", { status: 400 });

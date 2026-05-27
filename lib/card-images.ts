@@ -1118,3 +1118,8 @@ export function cardImageUrl(name: string, size = 400): string | null {
   // Route through our proxy — avoids ORB blocking and Drive rate-limits in the browser.
   return `/api/card-image?id=${id}&sz=w${size}`;
 }
+
+/** Exposed for the API route so mobile clients can request images by card name. */
+export function getCardImageId(name: string): string | null {
+  return NAME_TO_ID[name.toLowerCase()] ?? null;
+}
