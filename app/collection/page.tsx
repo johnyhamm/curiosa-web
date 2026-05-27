@@ -414,6 +414,14 @@ export default function CollectionPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting]                   = useState(false);
 
+  // My Collection tab — filters
+  const [mineQuery,    setMineQuery]    = useState("");
+  const [mineElements, setMineElements] = useState<string[]>([]);
+  const [mineTypes,    setMineTypes]    = useState<string[]>([]);
+  const [mineRarities, setMineRarities] = useState<string[]>([]);
+  const [mineSet,      setMineSet]      = useState("");
+  const [mineSort,     setMineSort]     = useState("name-asc");
+
   // My Collection tab — pagination
   const [minePage, setMinePage] = useState(0);
 
@@ -446,8 +454,8 @@ export default function CollectionPage() {
     else setColLoading(false);
   }, [isSignedIn, loadCollection]);
 
-  // Reset to page 1 whenever the view switches between owned ↔ not-collected
-  useEffect(() => { setMinePage(0); }, [exportMissing]);
+  // Reset to page 1 whenever the mine view or any mine filter changes
+  useEffect(() => { setMinePage(0); }, [exportMissing, mineQuery, mineElements, mineTypes, mineRarities, mineSet, mineSort]);
 
   // ── Export collection (or missing cards) ─────────────────────────────────
 
@@ -550,6 +558,48 @@ export default function CollectionPage() {
       .filter((c) => !ownedKeys.has(c.name.toLowerCase().trim()))
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [allCardData, collection]);
+
+  // ── Filtered + sorted cards for the My Collection tab ────────────────────
+
+  const filteredMineCards = useMemo(() => {
+    const base = exportMissing ? missingCards : ownedCards;
+
+    let result = base.filter((c) => {
+      if (mineQuery) {
+        const q = mineQuery.toLowerCase();
+        if (
+          !c.name.toLowerCase().includes(q) &&
+          !(c.guardian.rulesText ?? "").toLowerCase().includes(q)
+        ) return false;
+      }
+      if (mineElements.length > 0 &&
+        !mineElements.every((el) => c.elements.toLowerCase().includes(el.toLowerCase()))
+      ) return false;
+      if (mineTypes.length > 0 &&
+        !mineTypes.some((t) => c.guardian.type.toLowerCase().includes(t.toLowerCase()))
+      ) return false;
+      if (mineRarities.length > 0 &&
+        !mineRarities.some((r) => (c.guardian.rarity ?? "").toLowerCase() === r.toLowerCase())
+      ) return false;
+      if (mineSet &&
+        !c.sets.some((s) => s.name.toLowerCase().includes(mineSet.toLowerCase()))
+      ) return false;
+      return true;
+    });
+
+    result = [...result].sort((a, b) => {
+      switch (mineSort) {
+        case "name-desc":   return b.name.localeCompare(a.name);
+        case "cost-asc":    return (a.guardian.cost ?? 0) - (b.guardian.cost ?? 0);
+        case "cost-desc":   return (b.guardian.cost ?? 0) - (a.guardian.cost ?? 0);
+        case "rarity-asc":  return (a.guardian.rarity ?? "").localeCompare(b.guardian.rarity ?? "");
+        case "rarity-desc": return (b.guardian.rarity ?? "").localeCompare(a.guardian.rarity ?? "");
+        default:            return a.name.localeCompare(b.name);
+      }
+    });
+
+    return result;
+  }, [exportMissing, ownedCards, missingCards, mineQuery, mineElements, mineTypes, mineRarities, mineSet, mineSort]);
 
   // ── Delete entire collection ──────────────────────────────────────────────
 
@@ -706,6 +756,16 @@ export default function CollectionPage() {
   }
   function toggleRarity(r: string) {
     setRarities((prev) => prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]);
+  }
+
+  function toggleMineEl(el: string) {
+    setMineElements((prev) => prev.includes(el) ? prev.filter((e) => e !== el) : [...prev, el]);
+  }
+  function toggleMineType(t: string) {
+    setMineTypes((prev) => prev.includes(t) ? prev.filter((x) => x !== t) : [...prev, t]);
+  }
+  function toggleMineRarity(r: string) {
+    setMineRarities((prev) => prev.includes(r) ? prev.filter((x) => x !== r) : [...prev, r]);
   }
 
   // ── Stats ────────────────────────────────────────────────────────────────
@@ -889,71 +949,175 @@ export default function CollectionPage() {
       </div>
 
       {/* ══ MY COLLECTION ══ */}
-      {tab === "mine" && (() => {
-        if (colLoading || allCardsLoading) {
-          return <div className="py-16 text-center text-gray-600 text-sm">Loading…</div>;
-        }
+      {tab === "mine" && (
+        colLoading || allCardsLoading
+          ? <div className="py-16 text-center text-gray-600 text-sm">Loading…</div>
+          : (() => {
+              const totalMinePages = Math.ceil(filteredMineCards.length / MINE_PAGE_SIZE);
+              const pageCards = filteredMineCards.slice(minePage * MINE_PAGE_SIZE, (minePage + 1) * MINE_PAGE_SIZE);
+              const hasFilters = mineQuery || mineElements.length > 0 || mineTypes.length > 0 || mineRarities.length > 0 || mineSet;
 
-        const activeCards  = exportMissing ? missingCards : ownedCards;
-        const totalMinePages = Math.ceil(activeCards.length / MINE_PAGE_SIZE);
-        const pageCards    = activeCards.slice(minePage * MINE_PAGE_SIZE, (minePage + 1) * MINE_PAGE_SIZE);
+              return (
+                <div className="flex flex-col gap-6">
 
-        if (activeCards.length === 0) {
-          return exportMissing
-            ? <div className="py-16 text-center text-gray-600 text-sm">🎉 You have every card in the set!</div>
-            : (
-              <div className="py-16 text-center text-gray-600 text-sm">
-                No cards yet —{" "}
-                <button onClick={() => setTab("browse")} className="text-amber-400 hover:underline">Browse & Add</button>
-              </div>
-            );
-        }
+                  {/* ── Filters sidebar + preview panel ── */}
+                  <div className="flex gap-5 items-start">
 
-        return (
-          <div className="flex flex-col gap-6">
-            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4 sm:gap-6">
-              {pageCards.map((card) => (
-                <CardTile
-                  key={card.name}
-                  card={card}
-                  qty={collection[card.name.trim().toLowerCase()]?.qty ?? 0}
-                  onQtyChange={handleQtyChange}
-                  onHoverStart={(c) => setHoveredCard(c)}
-                  onHoverEnd={() => setHoveredCard(null)}
-                />
-              ))}
-            </div>
+                    {/* Filters sidebar */}
+                    <div className="flex-1 sm:flex-none sm:w-72 bg-gray-900 border border-gray-800 rounded-xl p-4 flex flex-col gap-4">
 
-            {/* Pagination controls */}
-            {totalMinePages > 1 && (
-              <div className="flex items-center justify-between pt-2">
-                <button
-                  onClick={() => { setMinePage((p) => Math.max(0, p - 1)); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                  disabled={minePage === 0}
-                  className="px-4 py-2 text-sm font-medium bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-white rounded-lg transition-colors"
-                >
-                  ← Previous
-                </button>
-                <span className="text-sm text-gray-400">
-                  Page {minePage + 1} of {totalMinePages}
-                  <span className="text-gray-600 ml-2">({activeCards.length} cards total)</span>
-                </span>
-                <button
-                  onClick={() => { setMinePage((p) => Math.min(totalMinePages - 1, p + 1)); window.scrollTo({ top: 0, behavior: "smooth" }); }}
-                  disabled={minePage >= totalMinePages - 1}
-                  className="px-4 py-2 text-sm font-medium bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-white rounded-lg transition-colors"
-                >
-                  Next →
-                </button>
-              </div>
-            )}
-          </div>
-        );
-      })()}
+                      {/* Search */}
+                      <input
+                        type="text"
+                        placeholder="Search card name or text…"
+                        value={mineQuery}
+                        onChange={(e) => setMineQuery(e.target.value)}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-white placeholder-gray-500 focus:outline-none focus:border-amber-500"
+                      />
 
-      {/* ── Fixed hover preview — My Collection tab only ── */}
-      {tab === "mine" && hoveredCard && (
-        <HoverPreview card={hoveredCard} />
+                      {/* Sort */}
+                      <select
+                        value={mineSort}
+                        onChange={(e) => setMineSort(e.target.value)}
+                        className="w-full bg-gray-800 border border-gray-700 rounded-lg px-3 py-2 text-sm text-gray-300 focus:outline-none focus:border-amber-500"
+                      >
+                        {SORTS.map((s) => <option key={s.value} value={s.value}>{s.label}</option>)}
+                      </select>
+
+                      {/* Element chips */}
+                      <div>
+                        <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Element</div>
+                        <div className="flex flex-wrap gap-2">
+                          {ELEMENTS.map((el) => (
+                            <Chip key={el} label={el} active={mineElements.includes(el)} colour={EL_COLOUR[el]} onClick={() => toggleMineEl(el)} />
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Type chips */}
+                      <div>
+                        <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Type</div>
+                        <div className="flex flex-wrap gap-2">
+                          {TYPES.map((t) => (
+                            <Chip key={t} label={t} active={mineTypes.includes(t)} onClick={() => toggleMineType(t)} />
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Rarity chips */}
+                      <div>
+                        <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Rarity</div>
+                        <div className="flex flex-wrap gap-2">
+                          {RARITIES.map((r) => (
+                            <Chip
+                              key={r}
+                              label={r}
+                              active={mineRarities.includes(r)}
+                              colour={`bg-gray-800 border ${
+                                r === "Unique"      ? "text-amber-400 border-amber-500/50 bg-amber-500/10" :
+                                r === "Elite"       ? "text-sky-400 border-sky-500/50 bg-sky-500/10" :
+                                r === "Exceptional" ? "text-green-400 border-green-500/50 bg-green-500/10" :
+                                "text-gray-300 border-gray-500"
+                              }`}
+                              onClick={() => toggleMineRarity(r)}
+                            />
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Set chips */}
+                      <div>
+                        <div className="text-xs text-gray-500 font-semibold uppercase tracking-wide mb-2">Set</div>
+                        <div className="flex flex-wrap gap-2">
+                          {SETS.map((s) => (
+                            <Chip key={s} label={s} active={mineSet === s} onClick={() => setMineSet((prev) => prev === s ? "" : s)} />
+                          ))}
+                        </div>
+                      </div>
+
+                      {/* Active filter summary + clear */}
+                      {hasFilters && (
+                        <div className="flex items-center justify-between border-t border-gray-800 pt-3">
+                          <span className="text-xs text-gray-500">
+                            {filteredMineCards.length} card{filteredMineCards.length !== 1 ? "s" : ""} match
+                          </span>
+                          <button
+                            onClick={() => { setMineQuery(""); setMineElements([]); setMineTypes([]); setMineRarities([]); setMineSet(""); }}
+                            className="text-xs text-amber-400 hover:text-amber-300 font-medium"
+                          >
+                            Clear all
+                          </button>
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Card preview panel */}
+                    <div
+                      className="hidden sm:flex flex-1 items-center justify-center bg-gray-900/40 border border-gray-800 rounded-xl"
+                      style={{ minHeight: HOVER_H + 48 }}
+                    >
+                      {hoveredCard
+                        ? <BrowsePreview card={hoveredCard} />
+                        : <span className="text-gray-700 text-sm">Hover a card to preview</span>
+                      }
+                    </div>
+                  </div>
+
+                  {/* ── Card grid ── */}
+                  {pageCards.length === 0
+                    ? (
+                      <div className="py-12 text-center text-gray-600 text-sm">
+                        {hasFilters
+                          ? "No cards match your filters."
+                          : exportMissing
+                            ? "🎉 You have every card in the set!"
+                            : <>No cards yet — <button onClick={() => setTab("browse")} className="text-amber-400 hover:underline">Browse & Add</button></>
+                        }
+                      </div>
+                    )
+                    : (
+                      <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4 sm:gap-6">
+                        {pageCards.map((card) => (
+                          <CardTile
+                            key={card.name}
+                            card={card}
+                            qty={collection[card.name.trim().toLowerCase()]?.qty ?? 0}
+                            onQtyChange={handleQtyChange}
+                            onHoverStart={(c) => setHoveredCard(c)}
+                            onHoverEnd={() => setHoveredCard(null)}
+                          />
+                        ))}
+                      </div>
+                    )
+                  }
+
+                  {/* ── Pagination ── */}
+                  {totalMinePages > 1 && (
+                    <div className="flex items-center justify-between pt-2">
+                      <button
+                        onClick={() => { setMinePage((p) => Math.max(0, p - 1)); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                        disabled={minePage === 0}
+                        className="px-4 py-2 text-sm font-medium bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-white rounded-lg transition-colors"
+                      >
+                        ← Previous
+                      </button>
+                      <span className="text-sm text-gray-400">
+                        Page {minePage + 1} of {totalMinePages}
+                        <span className="text-gray-600 ml-2">({filteredMineCards.length} cards total)</span>
+                      </span>
+                      <button
+                        onClick={() => { setMinePage((p) => Math.min(totalMinePages - 1, p + 1)); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                        disabled={minePage >= totalMinePages - 1}
+                        className="px-4 py-2 text-sm font-medium bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-white rounded-lg transition-colors"
+                      >
+                        Next →
+                      </button>
+                    </div>
+                  )}
+
+                </div>
+              );
+            })()
       )}
 
       {/* ══ BROWSE & ADD ══ */}
