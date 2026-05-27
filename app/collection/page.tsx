@@ -797,18 +797,18 @@ export default function CollectionPage() {
                 <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
                 </svg>
-                {exportMissing ? "Export Missing" : "Export CSV"}
+                {exportMissing ? "Export Not Collected" : "Export CSV"}
               </button>
 
-              {/* Export missing toggle */}
-              <label className="flex items-center gap-1.5 cursor-pointer select-none" title="When checked, exports cards you're missing instead of your collection">
+              {/* Not collected toggle */}
+              <label className="flex items-center gap-1.5 cursor-pointer select-none" title="When checked, shows and exports cards not yet in your collection">
                 <div
                   onClick={() => setExportMissing((v) => !v)}
                   className={`w-8 h-4 rounded-full transition-colors relative flex-shrink-0 ${exportMissing ? "bg-amber-500" : "bg-gray-600"}`}
                 >
                   <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-all ${exportMissing ? "left-4" : "left-0.5"}`} />
                 </div>
-                <span className="text-xs text-gray-400 whitespace-nowrap">Missing only</span>
+                <span className="text-xs text-gray-400 whitespace-nowrap">Not collected</span>
               </label>
 
               {/* Divider */}
