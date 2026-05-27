@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useCallback, useRef } from "react";
+import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import type { Card } from "@/lib/cards";
 import type { CollectionMap } from "@/lib/collection";
 import { cardImageUrl } from "@/lib/card-images";
@@ -407,6 +407,10 @@ export default function CollectionPage() {
   const [importMsg, setImportMsg]         = useState<{ type: "ok" | "err"; text: string } | null>(null);
   const importInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Delete entire collection
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deleting, setDeleting]                   = useState(false);
+
   const searchTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimer      = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // Tracks qty values that have been changed locally but not yet persisted to Redis.
@@ -498,18 +502,46 @@ export default function CollectionPage() {
   }, [loadCollection]);
 
   // ── Load card data for owned cards ───────────────────────────────────────
+  // Only re-fetch when the *set of owned card names* changes, not on every qty
+  // update — otherwise every +/− tap triggers a full reload and loading spinner.
+
+  const ownedNamesKey = useMemo(
+    () =>
+      Object.values(collection)
+        .filter((e) => e.qty > 0)
+        .map((e) => e.cardName)
+        .sort()
+        .join("|"),
+    [collection],
+  );
 
   useEffect(() => {
-    const owned = Object.values(collection).filter((e) => e.qty > 0);
-    if (owned.length === 0) { setOwnedCards([]); return; }
+    if (!ownedNamesKey) { setOwnedCards([]); return; }
     setOwnedLoading(true);
-    const names = owned.map((e) => e.cardName).join(",");
+    const names = ownedNamesKey.split("|").join(",");
     fetch(`/api/cards/batch?names=${encodeURIComponent(names)}`)
       .then((r) => (r.ok ? r.json() : []))
       .then((cards) => setOwnedCards((cards as Card[]).sort((a, b) => a.name.localeCompare(b.name))))
       .catch(() => setOwnedCards([]))
       .finally(() => setOwnedLoading(false));
-  }, [collection]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [ownedNamesKey]);
+
+  // ── Delete entire collection ──────────────────────────────────────────────
+
+  const handleDeleteAll = useCallback(async () => {
+    setDeleting(true);
+    try {
+      const res = await fetch("/api/collection/all", { method: "DELETE" });
+      if (res.ok) {
+        setCollection({});
+        setOwnedCards([]);
+        setShowDeleteConfirm(false);
+      }
+    } finally {
+      setDeleting(false);
+    }
+  }, []);
 
   // ── Browse: fetch page ───────────────────────────────────────────────────
 
@@ -758,6 +790,21 @@ export default function CollectionPage() {
                 </div>
                 <span className="text-xs text-gray-400 whitespace-nowrap">Missing only</span>
               </label>
+
+              {/* Divider */}
+              <div className="w-px h-5 bg-gray-700 mx-1 hidden sm:block" />
+
+              {/* Delete collection button */}
+              <button
+                onClick={() => { setShowDeleteConfirm(true); setImportMsg(null); }}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg border border-red-800/60 bg-red-900/20 hover:bg-red-900/40 text-red-400 hover:text-red-300 text-xs font-medium transition-colors"
+                title="Delete your entire collection"
+              >
+                <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16" />
+                </svg>
+                Delete All
+              </button>
             </div>
           )}
         </div>
@@ -772,6 +819,33 @@ export default function CollectionPage() {
         }`}>
           <span>{importMsg.text}</span>
           <button onClick={() => setImportMsg(null)} className="text-gray-500 hover:text-gray-300 text-lg leading-none">×</button>
+        </div>
+      )}
+
+      {/* Delete confirmation banner */}
+      {showDeleteConfirm && (
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 mb-4 px-4 py-3 rounded-lg border border-red-700/60 bg-red-900/25 text-sm">
+          <div>
+            <p className="text-red-300 font-semibold">Are you sure you want to delete your entire collection?</p>
+            <p className="text-red-400/70 text-xs mt-0.5">
+              This will permanently remove all {ownedEntries.length} unique card{ownedEntries.length !== 1 ? "s" : ""} ({totalCopies} cop{totalCopies !== 1 ? "ies" : "y"}) and cannot be undone.
+            </p>
+          </div>
+          <div className="flex gap-2 shrink-0">
+            <button
+              onClick={() => setShowDeleteConfirm(false)}
+              className="px-3 py-1.5 rounded-lg border border-gray-600 bg-gray-800 hover:bg-gray-700 text-gray-300 text-xs font-medium transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleDeleteAll}
+              disabled={deleting}
+              className="px-3 py-1.5 rounded-lg bg-red-700 hover:bg-red-600 disabled:opacity-50 text-white text-xs font-semibold transition-colors"
+            >
+              {deleting ? "Deleting…" : "Yes, delete everything"}
+            </button>
+          </div>
         </div>
       )}
 

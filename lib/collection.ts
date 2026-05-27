@@ -105,6 +105,14 @@ export async function removeCard(userId: string, cardName: string): Promise<void
 }
 
 /**
+ * Delete the user's entire collection (removes the Redis hash key).
+ */
+export async function clearCollection(userId: string): Promise<void> {
+  if (!redis) return;
+  await redis.del(colKey(userId));
+}
+
+/**
  * Bulk-upsert multiple cards at once.
  * Designed for the camera-scanning workflow: scan a stack of cards,
  * send them all in one request.
