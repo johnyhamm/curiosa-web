@@ -532,6 +532,18 @@ export default function CollectionPage() {
       .sort((a, b) => a.name.localeCompare(b.name));
   }, [allCardData, collection]);
 
+  const missingCards = useMemo(() => {
+    if (allCardData.length === 0) return [];
+    const ownedKeys = new Set(
+      Object.values(collection)
+        .filter((e) => e.qty > 0)
+        .map((e) => e.cardName),
+    );
+    return allCardData
+      .filter((c) => !ownedKeys.has(c.name.toLowerCase().trim()))
+      .sort((a, b) => a.name.localeCompare(b.name));
+  }, [allCardData, collection]);
+
   // ── Delete entire collection ──────────────────────────────────────────────
 
   const handleDeleteAll = useCallback(async () => {
@@ -718,7 +730,7 @@ export default function CollectionPage() {
       </p>
 
       {/* Stats + Import/Export toolbar */}
-      {!colLoading && (
+      {!colLoading && !allCardsLoading && (
         <div className="flex flex-wrap items-center gap-x-6 gap-y-3 mb-6">
           {/* Stats */}
           <div className="flex gap-6">
@@ -729,6 +741,10 @@ export default function CollectionPage() {
             <div>
               <span className="text-2xl font-bold text-amber-400">{totalCopies}</span>
               <span className="text-gray-500 text-sm ml-1.5">total copies</span>
+            </div>
+            <div>
+              <span className="text-2xl font-bold text-gray-500">{missingCards.length}</span>
+              <span className="text-gray-600 text-sm ml-1.5">not collected</span>
             </div>
           </div>
 
@@ -869,29 +885,50 @@ export default function CollectionPage() {
       {tab === "mine" && (
         colLoading || allCardsLoading
           ? <div className="py-16 text-center text-gray-600 text-sm">Loading…</div>
-          : ownedCards.length === 0
-            ? (
-              <div className="py-16 text-center text-gray-600 text-sm">
-                No cards yet —{" "}
-                <button onClick={() => setTab("browse")} className="text-amber-400 hover:underline">
-                  Browse & Add
-                </button>
-              </div>
-            )
-            : (
-              <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:gap-5">
-                {ownedCards.map((card) => (
-                  <CardTile
-                    key={card.name}
-                    card={card}
-                    qty={collection[card.name.trim().toLowerCase()]?.qty ?? 0}
-                    onQtyChange={handleQtyChange}
-                    onHoverStart={(c) => setHoveredCard(c)}
-                    onHoverEnd={() => setHoveredCard(null)}
-                  />
-                ))}
-              </div>
-            )
+          : exportMissing
+            ? missingCards.length === 0
+              ? (
+                <div className="py-16 text-center text-gray-600 text-sm">
+                  🎉 You have every card in the set!
+                </div>
+              )
+              : (
+                <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:gap-5">
+                  {missingCards.map((card) => (
+                    <CardTile
+                      key={card.name}
+                      card={card}
+                      qty={0}
+                      onQtyChange={handleQtyChange}
+                      onHoverStart={(c) => setHoveredCard(c)}
+                      onHoverEnd={() => setHoveredCard(null)}
+                    />
+                  ))}
+                </div>
+              )
+            : ownedCards.length === 0
+              ? (
+                <div className="py-16 text-center text-gray-600 text-sm">
+                  No cards yet —{" "}
+                  <button onClick={() => setTab("browse")} className="text-amber-400 hover:underline">
+                    Browse & Add
+                  </button>
+                </div>
+              )
+              : (
+                <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:gap-5">
+                  {ownedCards.map((card) => (
+                    <CardTile
+                      key={card.name}
+                      card={card}
+                      qty={collection[card.name.trim().toLowerCase()]?.qty ?? 0}
+                      onQtyChange={handleQtyChange}
+                      onHoverStart={(c) => setHoveredCard(c)}
+                      onHoverEnd={() => setHoveredCard(null)}
+                    />
+                  ))}
+                </div>
+              )
       )}
 
       {/* ── Fixed hover preview — My Collection tab only ── */}
