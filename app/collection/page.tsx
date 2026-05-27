@@ -69,14 +69,14 @@ function parseCsv(text: string): ImportCard[] {
 
 // ─── Card display constants ───────────────────────────────────────────────────
 
-const CARD_W   = 150;
-const CARD_H   = Math.round(CARD_W * (88 / 63));   // ≈ 210 — portrait
-const SITE_H   = Math.round(CARD_W * (63 / 88));   // ≈ 107 — landscape container
+const CARD_W   = 200;
+const CARD_H   = Math.round(CARD_W * (88 / 63));   // ≈ 280 — portrait
+const SITE_H   = Math.round(CARD_W * (63 / 88));   // ≈ 143 — landscape container
 const SITE_IW  = SITE_H;                            // inner portrait element width
 const SITE_IH  = CARD_W;                            // inner portrait element height
 
 // 2× hover preview
-const HOVER_W      = CARD_W * 2;                     // 300
+const HOVER_W      = CARD_W * 2;                     // 400
 const HOVER_H      = Math.round(CARD_H * 2);          // ≈ 420
 const HOVER_SITE_H = Math.round(SITE_H * 2);          // ≈ 214
 const HOVER_SITE_IW = HOVER_SITE_H;                   // inner portrait width for hover site
@@ -291,7 +291,8 @@ function BrowsePreview({ card }: { card: Card }) {
 
 // ─── Card tile ────────────────────────────────────────────────────────────────
 
-const MOBILE_W = 120; // card image width in mobile horizontal layout
+const MOBILE_W = 160; // card image width in mobile horizontal layout
+const MINE_PAGE_SIZE = 24; // cards per page in the My Collection / Not Collected tab
 
 function CardTile({
   card, qty, onQtyChange,
@@ -331,10 +332,10 @@ function CardTile({
       </div>
 
       {/* Name, type hint (mobile only), rarity, qty controls */}
-      <div className="flex-1 flex flex-col gap-2 sm:items-center sm:w-[150px]">
+      <div className="flex-1 flex flex-col gap-2 sm:items-center sm:w-[200px]">
         <div>
           {/* Larger text on mobile */}
-          <div className="text-sm sm:text-xs text-gray-200 font-semibold leading-snug sm:text-center sm:line-clamp-2" title={card.name}>
+          <div className="text-sm text-gray-200 font-semibold leading-snug sm:text-center sm:line-clamp-2" title={card.name}>
             {card.name}
           </div>
           {/* Type + element shown on mobile for context */}
@@ -413,6 +414,9 @@ export default function CollectionPage() {
   const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
   const [deleting, setDeleting]                   = useState(false);
 
+  // My Collection tab — pagination
+  const [minePage, setMinePage] = useState(0);
+
   const searchTimer    = useRef<ReturnType<typeof setTimeout> | null>(null);
   const saveTimer      = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   // Tracks qty values that have been changed locally but not yet persisted to Redis.
@@ -441,6 +445,9 @@ export default function CollectionPage() {
     if (isSignedIn) loadCollection();
     else setColLoading(false);
   }, [isSignedIn, loadCollection]);
+
+  // Reset to page 1 whenever the view switches between owned ↔ not-collected
+  useEffect(() => { setMinePage(0); }, [exportMissing]);
 
   // ── Export collection (or missing cards) ─────────────────────────────────
 
@@ -882,54 +889,67 @@ export default function CollectionPage() {
       </div>
 
       {/* ══ MY COLLECTION ══ */}
-      {tab === "mine" && (
-        colLoading || allCardsLoading
-          ? <div className="py-16 text-center text-gray-600 text-sm">Loading…</div>
-          : exportMissing
-            ? missingCards.length === 0
-              ? (
-                <div className="py-16 text-center text-gray-600 text-sm">
-                  🎉 You have every card in the set!
-                </div>
-              )
-              : (
-                <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:gap-5">
-                  {missingCards.map((card) => (
-                    <CardTile
-                      key={card.name}
-                      card={card}
-                      qty={0}
-                      onQtyChange={handleQtyChange}
-                      onHoverStart={(c) => setHoveredCard(c)}
-                      onHoverEnd={() => setHoveredCard(null)}
-                    />
-                  ))}
-                </div>
-              )
-            : ownedCards.length === 0
-              ? (
-                <div className="py-16 text-center text-gray-600 text-sm">
-                  No cards yet —{" "}
-                  <button onClick={() => setTab("browse")} className="text-amber-400 hover:underline">
-                    Browse & Add
-                  </button>
-                </div>
-              )
-              : (
-                <div className="flex flex-col sm:flex-row sm:flex-wrap gap-3 sm:gap-5">
-                  {ownedCards.map((card) => (
-                    <CardTile
-                      key={card.name}
-                      card={card}
-                      qty={collection[card.name.trim().toLowerCase()]?.qty ?? 0}
-                      onQtyChange={handleQtyChange}
-                      onHoverStart={(c) => setHoveredCard(c)}
-                      onHoverEnd={() => setHoveredCard(null)}
-                    />
-                  ))}
-                </div>
-              )
-      )}
+      {tab === "mine" && (() => {
+        if (colLoading || allCardsLoading) {
+          return <div className="py-16 text-center text-gray-600 text-sm">Loading…</div>;
+        }
+
+        const activeCards  = exportMissing ? missingCards : ownedCards;
+        const totalMinePages = Math.ceil(activeCards.length / MINE_PAGE_SIZE);
+        const pageCards    = activeCards.slice(minePage * MINE_PAGE_SIZE, (minePage + 1) * MINE_PAGE_SIZE);
+
+        if (activeCards.length === 0) {
+          return exportMissing
+            ? <div className="py-16 text-center text-gray-600 text-sm">🎉 You have every card in the set!</div>
+            : (
+              <div className="py-16 text-center text-gray-600 text-sm">
+                No cards yet —{" "}
+                <button onClick={() => setTab("browse")} className="text-amber-400 hover:underline">Browse & Add</button>
+              </div>
+            );
+        }
+
+        return (
+          <div className="flex flex-col gap-6">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap gap-4 sm:gap-6">
+              {pageCards.map((card) => (
+                <CardTile
+                  key={card.name}
+                  card={card}
+                  qty={collection[card.name.trim().toLowerCase()]?.qty ?? 0}
+                  onQtyChange={handleQtyChange}
+                  onHoverStart={(c) => setHoveredCard(c)}
+                  onHoverEnd={() => setHoveredCard(null)}
+                />
+              ))}
+            </div>
+
+            {/* Pagination controls */}
+            {totalMinePages > 1 && (
+              <div className="flex items-center justify-between pt-2">
+                <button
+                  onClick={() => { setMinePage((p) => Math.max(0, p - 1)); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                  disabled={minePage === 0}
+                  className="px-4 py-2 text-sm font-medium bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-white rounded-lg transition-colors"
+                >
+                  ← Previous
+                </button>
+                <span className="text-sm text-gray-400">
+                  Page {minePage + 1} of {totalMinePages}
+                  <span className="text-gray-600 ml-2">({activeCards.length} cards total)</span>
+                </span>
+                <button
+                  onClick={() => { setMinePage((p) => Math.min(totalMinePages - 1, p + 1)); window.scrollTo({ top: 0, behavior: "smooth" }); }}
+                  disabled={minePage >= totalMinePages - 1}
+                  className="px-4 py-2 text-sm font-medium bg-gray-800 hover:bg-gray-700 disabled:opacity-30 text-white rounded-lg transition-colors"
+                >
+                  Next →
+                </button>
+              </div>
+            )}
+          </div>
+        );
+      })()}
 
       {/* ── Fixed hover preview — My Collection tab only ── */}
       {tab === "mine" && hoveredCard && (
