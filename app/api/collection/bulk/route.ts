@@ -35,8 +35,8 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: "cards array is required and must be non-empty" }, { status: 400 });
   }
 
-  if (body.cards.length > 500) {
-    return NextResponse.json({ error: "Maximum 500 cards per bulk request" }, { status: 400 });
+  if (body.cards.length > 2000) {
+    return NextResponse.json({ error: "Maximum 2000 cards per bulk request" }, { status: 400 });
   }
 
   await bulkUpdate(userId, body.cards);
