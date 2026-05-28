@@ -134,6 +134,30 @@ function DeckRow({
   );
 }
 
+function buildTCGplayerUrl(decklist: ApiDeckCard[], avatar: ApiDeckCard | null): string {
+  const allCards = [
+    ...decklist,
+    ...(avatar ? [{ ...avatar, quantity: avatar.quantity ?? 1 }] : []),
+  ];
+  const cardStr =
+    allCards
+      .filter((e) => (e.quantity ?? 1) > 0)
+      .map((e) => `${e.quantity ?? 1} ${e.card.name}`)
+      .join("||") + "||";
+
+  const massEntryUrl =
+    "https://www.tcgplayer.com/massentry" +
+    "?productline=Sorcery%3A%20Contested%20Realm" +
+    "&c=" +
+    encodeURIComponent(cardStr);
+
+  return (
+    "https://partner.tcgplayer.com/c/7336784/1780961/21018" +
+    "?u=" +
+    encodeURIComponent(massEntryUrl)
+  );
+}
+
 function DeckList({ data, deckId }: { data: FullDeckData; deckId: string }) {
   const { decklist, avatar, meta } = data;
 
@@ -156,14 +180,26 @@ function DeckList({ data, deckId }: { data: FullDeckData; deckId: string }) {
           <span className="font-semibold text-white">{meta?.name ?? "Deck"}</span>
           <span className="text-gray-500 ml-2">— {total} cards total</span>
         </div>
-        <a
-          href={`https://curiosa.io/decks/${deckId}`}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="text-amber-500 hover:text-amber-400 text-xs"
-        >
-          View on curiosa.io ↗
-        </a>
+        <div className="flex items-center gap-3">
+          <a
+            href={buildTCGplayerUrl(decklist, avatar)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="inline-flex items-center gap-1 px-3 py-1.5 rounded-lg text-xs font-semibold
+              bg-[#F0A500] hover:bg-[#d4920a] text-gray-950 transition-colors whitespace-nowrap"
+            title="Buy this decklist on TCGplayer (affiliate link)"
+          >
+            🛒 Buy on TCGplayer
+          </a>
+          <a
+            href={`https://curiosa.io/decks/${deckId}`}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-amber-500 hover:text-amber-400 text-xs"
+          >
+            curiosa.io ↗
+          </a>
+        </div>
       </div>
 
       {avatar && (
