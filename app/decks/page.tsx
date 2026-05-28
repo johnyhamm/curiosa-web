@@ -137,19 +137,22 @@ function DeckRow({
 function buildTCGplayerUrl(decklist: ApiDeckCard[], avatar: ApiDeckCard | null): string {
   const allCards = [
     ...decklist,
-    ...(avatar ? [{ ...avatar, quantity: avatar.quantity ?? 1 }] : []),
+    ...(avatar ? [avatar] : []),
   ];
+
+  // Use + for spaces to match TCGplayer mass entry format (form-encoding style)
   const cardStr =
     allCards
       .filter((e) => (e.quantity ?? 1) > 0)
-      .map((e) => `${e.quantity ?? 1} ${e.card.name}`)
+      .map((e) => `${e.quantity ?? 1}+${e.card.name.replace(/ /g, "+")}`)
       .join("||") + "||";
 
+  // "Sorcery+Contested+Realm" (no colon) is what TCGplayer mass entry expects
   const massEntryUrl =
     "https://www.tcgplayer.com/massentry" +
-    "?productline=Sorcery%3A%20Contested%20Realm" +
+    "?productline=Sorcery+Contested+Realm" +
     "&c=" +
-    encodeURIComponent(cardStr);
+    cardStr;
 
   return (
     "https://partner.tcgplayer.com/c/7336784/1780961/21018" +
