@@ -47,16 +47,16 @@ async function TCGPlayerBanner() {
     <div className="w-full bg-black flex justify-center overflow-hidden">
       <a
         rel="sponsored"
-        href="https://partner.tcgplayer.com/c/7336784/3913669/21018"
+        href="https://partner.tcgplayer.com/c/7336784/3904322/21018"
         target="_top"
-        id="3913669"
+        id="3904322"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
-          src="https://a.impactradius-go.com/display-ad/21018-3913669"
+          src="https://a.impactradius-go.com/display-ad/21018-3904322"
           alt="Shop on TCGplayer"
-          width={1940}
-          height={180}
+          width={600}
+          height={100}
           style={{ maxWidth: "100%", height: "auto", display: "block" }}
         />
       </a>
@@ -65,7 +65,7 @@ async function TCGPlayerBanner() {
       <img
         height={0}
         width={0}
-        src="https://imp.pxf.io/i/7336784/3913669/21018"
+        src="https://imp.pxf.io/i/7336784/3904322/21018"
         style={{ position: "absolute", visibility: "hidden" }}
         alt=""
       />
