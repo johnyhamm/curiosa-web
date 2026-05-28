@@ -7,6 +7,7 @@ import { useDeckSearch } from "@/lib/deck-client-cache";
 import type { DeckIndexEntry } from "@/lib/decks";
 import type { ApiDeckCard } from "@/lib/simulator";
 import type { SavedBuilderDeck, PublicBuilderDeck } from "@/lib/builder-deck";
+import { cardImageUrl } from "@/lib/card-images";
 
 interface FullDeckData {
   decklist: ApiDeckCard[];
@@ -29,46 +30,41 @@ function elementBadge(el: string) {
   return colors[el] ?? "bg-gray-800 text-gray-400";
 }
 
-// ─── Element gradient helpers ─────────────────────────────────────────────────
-
-/** RGB values (no alpha) used to build gradients */
-const ELEMENT_RGB: Record<string, [number, number, number]> = {
-  Fire:  [120, 20,  20],
-  Water: [15,  45,  110],
-  Earth: [15,  65,  35],
-  Air:   [10,  55,  100],
-};
+// ─── Avatar card-art background helpers ──────────────────────────────────────
 
 const ELEMENT_BORDER: Record<string, string> = {
-  Fire:  "rgba(153, 27, 27, 0.55)",
-  Water: "rgba(30, 64, 175, 0.55)",
-  Earth: "rgba(22, 101, 52, 0.55)",
-  Air:   "rgba(14, 116, 144, 0.55)",
+  Fire:  "rgba(153, 27, 27, 0.7)",
+  Water: "rgba(30, 64, 175, 0.7)",
+  Earth: "rgba(22, 101, 52, 0.7)",
+  Air:   "rgba(14, 116, 144, 0.7)",
 };
 
-function getElementStyle(elements: string[]): React.CSSProperties {
-  const known = elements.filter((e) => ELEMENT_RGB[e]);
-  if (!known.length) return {};                          // fall back to Tailwind defaults
+/**
+ * Returns inline styles for a deck card row:
+ *   - background-image: avatar card art with a dark overlay so text stays readable
+ *   - border-color: element accent (optional)
+ * Pass `elements` directly for curiosa.io decks (already known);
+ * for builder decks pass only `avatarName` and it is inferred.
+ */
+function getDeckCardStyle(
+  avatarName: string | null | undefined,
+  elements?: string[]
+): React.CSSProperties {
+  const elems = elements ?? avatarToElements(avatarName ?? null);
+  const borderColor = ELEMENT_BORDER[elems[0]] ?? undefined;
 
-  const alpha = 0.55;
-  const stops = known.slice(0, 4).map((e, i, arr) => {
-    const [r, g, b] = ELEMENT_RGB[e];
-    const pct = arr.length === 1 ? (i === 0 ? "0%" : "100%") : `${Math.round((i / (arr.length - 1)) * 100)}%`;
-    return `rgba(${r},${g},${b},${alpha}) ${pct}`;
-  });
-
-  // Single-element: fade to near-black
-  if (known.length === 1) {
-    const [r, g, b] = ELEMENT_RGB[known[0]];
-    return {
-      background: `linear-gradient(135deg, rgba(${r},${g},${b},${alpha}) 0%, rgba(${r},${g},${b},0.15) 60%, rgb(17,24,39) 100%)`,
-      borderColor: ELEMENT_BORDER[known[0]],
-    };
-  }
+  const imgUrl = avatarName ? cardImageUrl(avatarName, 400) : null;
+  if (!imgUrl) return borderColor ? { borderColor } : {};
 
   return {
-    background: `linear-gradient(135deg, ${stops.join(", ")})`,
-    borderColor: ELEMENT_BORDER[known[0]],
+    backgroundImage: [
+      // dark overlay — lighter at the top so art peeks through, solid by ~65%
+      "linear-gradient(to bottom, rgba(17,24,39,0.35) 0%, rgba(17,24,39,0.80) 45%, rgba(17,24,39,0.97) 65%, rgb(17,24,39) 100%)",
+      `url('${imgUrl}')`,
+    ].join(", "),
+    backgroundSize: "cover",
+    backgroundPosition: "center top",
+    ...(borderColor ? { borderColor } : {}),
   };
 }
 
@@ -144,12 +140,12 @@ function DeckRow({
   onToggleFavorite: (deck: DeckIndexEntry) => void;
 }) {
   const isLoading = loadingId === deck.id;
-  const elementStyle = getElementStyle(deck.elements);
+  const cardStyle = getDeckCardStyle(deck.avatarName, deck.elements);
 
   return (
     <div
       className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden hover:brightness-110 transition-all"
-      style={elementStyle}
+      style={cardStyle}
     >
       <div
         className="p-4 cursor-pointer"
@@ -222,7 +218,7 @@ function DeckRow({
       </div>
 
       {expanded && (
-        <div className="border-t border-gray-800 p-4">
+        <div className="border-t border-gray-800 p-4 bg-gray-900">
           {isLoading && (
             <p className="text-gray-500 text-sm">Loading deck…</p>
           )}
@@ -367,7 +363,7 @@ function BuilderDeckList({ deck }: { deck: SavedBuilderDeck }) {
   }
 
   return (
-    <div className="border-t border-gray-800 p-4 text-sm">
+    <div className="border-t border-gray-800 p-4 text-sm bg-gray-900">
       {deck.av && (
         <div className="mb-3 p-2 bg-amber-900/20 border border-amber-800/40 rounded text-amber-300 text-xs">
           Avatar: {deck.av}
@@ -438,15 +434,13 @@ function MyDecksSection({
           const expanded = expandedId === deck.id;
           const isPublic = deck.pub ?? false;
           const toggling = togglingId === deck.id;
-          const elems = avatarToElements(deck.av);
-          const elementStyle = getElementStyle(elems);
-          const hasBorderStyle = !!elementStyle.borderColor;
+          const cardStyle = getDeckCardStyle(deck.av);
 
           return (
             <div
               key={deck.id}
-              className={`bg-gray-900 border rounded-xl overflow-hidden hover:brightness-110 transition-all ${hasBorderStyle ? "border-gray-800" : "border-amber-900/30"}`}
-              style={elementStyle}
+              className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden hover:brightness-110 transition-all"
+              style={cardStyle}
             >
               <div
                 className="p-4 cursor-pointer"
@@ -543,13 +537,13 @@ function CommunityDeckList({
       {decks.map(deck => {
         const cardCount = deck.e.reduce((s, e) => s + e[1], 0);
         const expanded = expandedId === deck.id;
-        const elementStyle = getElementStyle(avatarToElements(deck.av));
+        const cardStyle = getDeckCardStyle(deck.av);
 
         return (
           <div
             key={deck.id}
             className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden hover:brightness-110 transition-all"
-            style={elementStyle}
+            style={cardStyle}
           >
             <div
               className="p-4 cursor-pointer"
