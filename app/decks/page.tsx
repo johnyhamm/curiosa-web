@@ -416,14 +416,7 @@ function MyDecksSection({
   };
 
   return (
-    <div className="mb-8">
-      <div className="flex items-center gap-3 mb-3">
-        <h2 className="text-sm font-bold uppercase tracking-widest text-amber-600 shrink-0">
-          My Saved Decks
-        </h2>
-        <div className="flex-1 border-t border-amber-900/40" />
-        <span className="text-xs text-gray-600 shrink-0">{decks.length} deck{decks.length !== 1 ? "s" : ""}</span>
-      </div>
+    <div>
 
       <div className="flex flex-col gap-3">
         {decks.map(deck => {
@@ -709,8 +702,6 @@ function CommunityDecksSection({
 
 // ─────────────────────────────────────────────────────────────────────────────
 
-const PAGE_SIZE = 30;
-
 function DecksPageContent() {
   const { isSignedIn } = useAuthSafe();
   const searchParams = useSearchParams();
@@ -719,7 +710,7 @@ function DecksPageContent() {
   const [query,  setQuery]  = useState(searchParams.get("q") ?? "");
   const [avatar, setAvatar] = useState("");
   const [sortBy, setSortBy] = useState<"likes" | "views">("views");
-  const [page,   setPage]   = useState(0);
+  const [page,   setPage]   = useState(0); // kept for useEffect dep compatibility
 
   // My saved builder decks
   const [myDecks, setMyDecks] = useState<SavedBuilderDeck[]>([]);
@@ -823,14 +814,10 @@ function DecksPageContent() {
   // Falls back to live API automatically when query has no local matches.
   const { results: allResults, total, isLoading, isLiveFallback } = useDeckSearch(query, avatar, sortBy, 500);
 
-  // Paginate locally
-  const pageResults = allResults.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE);
-  const pageCount   = Math.ceil(allResults.length / PAGE_SIZE);
-
-  // Reset to page 0 whenever filters change
+  // Reset to page 0 whenever filters change (kept for sort state compatibility)
   useEffect(() => { setPage(0); }, [query, avatar, sortBy]);
 
-  // Deck expand
+  // Curiosa.io deck expand (community panels manage their own expand state internally)
   const [expandedId,    setExpandedId]    = useState<string | null>(null);
   const [deckData,      setDeckData]      = useState<Record<string, FullDeckData>>({});
   const [loadingDeckId, setLoadingDeckId] = useState<string | null>(null);
@@ -888,147 +875,178 @@ function DecksPageContent() {
     }
   }, [isSignedIn, favoriteIds]);
 
+  // Top 10 curiosa.io results — no pagination needed
+  const top10Results = allResults.slice(0, 10);
+
+  // Shared quadrant panel shell
+  function Panel({ title, count, children, controls }: {
+    title: string;
+    count?: number;
+    children: React.ReactNode;
+    controls?: React.ReactNode;
+  }) {
+    return (
+      <div className="flex flex-col h-[680px] bg-gray-900/40 border border-gray-800 rounded-xl overflow-hidden">
+        {/* Sticky header */}
+        <div className="shrink-0 px-4 pt-4 pb-3 border-b border-gray-800 bg-gray-900/90 backdrop-blur-sm">
+          <div className="flex items-center gap-2 mb-1">
+            <h2 className="text-xs font-bold uppercase tracking-widest text-amber-600 flex-1">{title}</h2>
+            {count !== undefined && (
+              <span className="text-xs text-gray-500">{count} deck{count !== 1 ? "s" : ""}</span>
+            )}
+          </div>
+          {controls}
+        </div>
+        {/* Scrollable body */}
+        <div className="flex-1 overflow-y-auto p-3 space-y-2">
+          {children}
+        </div>
+      </div>
+    );
+  }
+
   return (
-    <div className="max-w-4xl mx-auto px-4 sm:px-6 py-10">
+    <div className="max-w-7xl mx-auto px-4 sm:px-6 py-10">
       <h1 className="text-3xl font-bold text-amber-400 mb-2" style={{ fontFamily: "var(--font-cinzel)" }}>Deck Explorer</h1>
-      <p className="text-gray-400 mb-8 text-sm">
-        Browse and search decks from curiosa.io. Results filter instantly.
+      <p className="text-gray-400 mb-6 text-sm">
+        Browse decks from the community and curiosa.io. Results filter instantly.
       </p>
 
-      {/* My Saved Decks */}
-      {myDecks.length > 0 && (
-        <MyDecksSection decks={myDecks} onTogglePublic={handleTogglePublic} />
-      )}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-5">
 
-      {/* Community builder decks */}
-      <CommunityDecksSection
-        recent={communityDecks.recent}
-        topLiked={communityDecks.topLiked}
-        onLike={handleLikeDeck}
-        onCopy={handleCopyDeck}
-        isSignedIn={!!isSignedIn}
-      />
+        {/* ── Q1: My Saved Decks ───────────────────────────────────────────── */}
+        <Panel title="My Saved Decks" count={myDecks.length || undefined}>
+          {myDecks.length > 0
+            ? <MyDecksSection decks={myDecks} onTogglePublic={handleTogglePublic} />
+            : (
+              <div className="flex flex-col items-center justify-center h-full text-center py-12 gap-3">
+                {isSignedIn
+                  ? <>
+                      <p className="text-gray-400 text-sm">No saved decks yet.</p>
+                      <a href="/deckbuilder" className="text-xs text-amber-500 hover:text-amber-400">
+                        Open the Deck Builder →
+                      </a>
+                    </>
+                  : <>
+                      <p className="text-gray-400 text-sm">Sign in to see your saved decks.</p>
+                    </>
+                }
+              </div>
+            )
+          }
+        </Panel>
 
-      {/* Curiosa.io decks heading */}
-      <div className="flex items-center gap-3 mb-5">
-        <h2 className="text-sm font-bold uppercase tracking-widest text-amber-600 shrink-0">
-          Curiosa.IO Decks
-        </h2>
-        <div className="flex-1 border-t border-amber-900/40" />
-      </div>
-
-      {/* Search controls */}
-      <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-6 flex flex-col gap-4">
-        <div className="flex gap-2">
-          <input
-            type="text"
-            value={query}
-            onChange={e => setQuery(e.target.value)}
-            placeholder="Filter by deck name or avatar…"
-            className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2.5 text-white
-              placeholder-gray-500 focus:outline-none focus:border-amber-500 transition-colors"
+        {/* ── Q2: Community — Recently Added ──────────────────────────────── */}
+        <Panel title="Community — Recently Added" count={communityDecks.recent.length || undefined}>
+          <CommunityDeckList
+            decks={communityDecks.recent}
+            onLike={handleLikeDeck}
+            onCopy={handleCopyDeck}
+            isSignedIn={!!isSignedIn}
+            expandedId={expandedId}
+            setExpandedId={setExpandedId}
           />
-          {query && (
-            <button
-              onClick={() => setQuery("")}
-              className="px-3 py-2 text-sm bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700 rounded-lg transition-colors"
-            >
-              ✕
-            </button>
+        </Panel>
+
+        {/* ── Q3: Community — Most Liked ───────────────────────────────────── */}
+        <Panel title="Community — Most Liked" count={communityDecks.topLiked.length || undefined}>
+          <CommunityDeckList
+            decks={communityDecks.topLiked}
+            onLike={handleLikeDeck}
+            onCopy={handleCopyDeck}
+            isSignedIn={!!isSignedIn}
+            expandedId={expandedId}
+            setExpandedId={setExpandedId}
+          />
+        </Panel>
+
+        {/* ── Q4: Curiosa.IO Decks ─────────────────────────────────────────── */}
+        <Panel
+          title="Curiosa.IO Decks"
+          count={!isLoading && total > 0 ? Math.min(total, 10) : undefined}
+          controls={
+            <div className="flex flex-col gap-2 mt-2">
+              <div className="flex gap-1.5">
+                <input
+                  type="text"
+                  value={query}
+                  onChange={e => setQuery(e.target.value)}
+                  placeholder="Search by name or avatar…"
+                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-xs
+                    placeholder-gray-500 focus:outline-none focus:border-amber-500 transition-colors"
+                />
+                {query && (
+                  <button
+                    onClick={() => setQuery("")}
+                    className="px-2 py-1.5 text-xs bg-gray-800 hover:bg-gray-700 text-gray-400 border border-gray-700 rounded-lg transition-colors"
+                  >
+                    ✕
+                  </button>
+                )}
+              </div>
+              <div className="flex items-center gap-2">
+                <input
+                  type="text"
+                  value={avatar}
+                  onChange={e => setAvatar(e.target.value)}
+                  placeholder="Avatar filter…"
+                  className="flex-1 bg-gray-800 border border-gray-700 rounded-lg px-3 py-1.5 text-white text-xs
+                    placeholder-gray-500 focus:outline-none focus:border-amber-500 transition-colors"
+                />
+                <div className="flex gap-0.5 bg-gray-800 border border-gray-700 rounded-lg p-0.5 shrink-0">
+                  <button
+                    onClick={() => setSortBy("views")}
+                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                      sortBy === "views" ? "bg-amber-500 text-gray-950" : "text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    Views
+                  </button>
+                  <button
+                    onClick={() => setSortBy("likes")}
+                    className={`px-2 py-1 rounded text-xs font-medium transition-colors ${
+                      sortBy === "likes" ? "bg-amber-500 text-gray-950" : "text-gray-400 hover:text-white"
+                    }`}
+                  >
+                    Likes
+                  </button>
+                </div>
+              </div>
+            </div>
+          }
+        >
+          {isLoading ? (
+            <p className="text-gray-500 text-xs py-4 text-center">Loading…</p>
+          ) : isLiveFallback ? (
+            <p className="text-gray-500 text-xs py-2">Searching curiosa.io…</p>
+          ) : top10Results.length === 0 ? (
+            <p className="text-gray-500 text-xs py-4 text-center">
+              {query || avatar ? "No decks found." : "Loading deck index…"}
+            </p>
+          ) : (
+            <div className="flex flex-col gap-2">
+              {top10Results.map(deck => (
+                <DeckRow
+                  key={deck.id}
+                  deck={deck}
+                  onExpand={handleExpand}
+                  expanded={expandedId === deck.id}
+                  fullData={deckData[deck.id] ?? null}
+                  loadingId={loadingDeckId}
+                  isFavorited={favoriteIds.has(deck.id)}
+                  onToggleFavorite={handleToggleFavorite}
+                />
+              ))}
+              {total > 10 && (
+                <p className="text-center text-xs text-gray-500 pt-1">
+                  Showing top 10 of {total.toLocaleString()} — refine your search to narrow results
+                </p>
+              )}
+            </div>
           )}
-        </div>
+        </Panel>
 
-        <div className="flex flex-wrap gap-3 items-center">
-          <input
-            type="text"
-            value={avatar}
-            onChange={e => setAvatar(e.target.value)}
-            placeholder="Avatar filter (e.g. Necromancer)…"
-            className="flex-1 min-w-40 bg-gray-800 border border-gray-700 rounded-lg px-4 py-2 text-white
-              placeholder-gray-500 focus:outline-none focus:border-amber-500 transition-colors text-sm"
-          />
-
-          <div className="flex gap-1 bg-gray-800 border border-gray-700 rounded-lg p-1 shrink-0">
-            <button
-              onClick={() => setSortBy("views")}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                sortBy === "views" ? "bg-amber-500 text-gray-950" : "text-gray-400 hover:text-white"
-              }`}
-            >
-              Most Viewed
-            </button>
-            <button
-              onClick={() => setSortBy("likes")}
-              className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
-                sortBy === "likes" ? "bg-amber-500 text-gray-950" : "text-gray-400 hover:text-white"
-              }`}
-            >
-              Most Liked
-            </button>
-          </div>
-        </div>
       </div>
-
-      {/* Result count */}
-      {isLoading ? (
-        <p className="text-gray-500 text-sm mb-4">Loading deck index…</p>
-      ) : isLiveFallback ? (
-        <p className="text-gray-500 text-sm mb-4">Searching all decks on curiosa.io…</p>
-      ) : (
-        <p className="text-gray-500 text-sm mb-4">
-          {total === 0 && (query || avatar)
-            ? "No decks found."
-            : total === 0
-            ? ""
-            : `${total.toLocaleString()} deck${total !== 1 ? "s" : ""}${query || avatar ? " matching" : ""} · showing ${pageResults.length}`}
-        </p>
-      )}
-
-      {/* Results */}
-      <div className="flex flex-col gap-3">
-        {pageResults.map(deck => (
-          <DeckRow
-            key={deck.id}
-            deck={deck}
-            onExpand={handleExpand}
-            expanded={expandedId === deck.id}
-            fullData={deckData[deck.id] ?? null}
-            loadingId={loadingDeckId}
-            isFavorited={favoriteIds.has(deck.id)}
-            onToggleFavorite={handleToggleFavorite}
-          />
-        ))}
-      </div>
-
-      {/* Pagination */}
-      {pageCount > 1 && (
-        <div className="flex items-center justify-center gap-2 mt-8">
-          <button
-            onClick={() => setPage(p => Math.max(0, p - 1))}
-            disabled={page === 0}
-            className="px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 rounded-lg text-white transition-colors"
-          >
-            ← Prev
-          </button>
-          <span className="text-sm text-gray-500">
-            Page {page + 1} of {pageCount}
-          </span>
-          <button
-            onClick={() => setPage(p => Math.min(pageCount - 1, p + 1))}
-            disabled={page >= pageCount - 1}
-            className="px-4 py-2 text-sm bg-gray-800 hover:bg-gray-700 disabled:opacity-30 rounded-lg text-white transition-colors"
-          >
-            Next →
-          </button>
-        </div>
-      )}
-
-      {/* Empty state */}
-      {!isLoading && total === 0 && !query && !avatar && (
-        <div className="text-center py-20 text-gray-600">
-          Loading deck list…
-        </div>
-      )}
     </div>
   );
 }
