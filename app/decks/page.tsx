@@ -164,10 +164,10 @@ function DeckRow({
                 </span>
               )}
             </div>
-            <div className="mt-1 text-sm text-gray-500">
+            <div className="mt-1 text-sm text-gray-300">
               by @{deck.username || "unknown"}
               {deck.avatarName && (
-                <span className="text-gray-600"> · Avatar: <span className="text-gray-400">{deck.avatarName}</span></span>
+                <span className="text-gray-400"> · Avatar: <span className="text-gray-200">{deck.avatarName}</span></span>
               )}
             </div>
             {deck.elements.length > 0 && (
@@ -185,7 +185,7 @@ function DeckRow({
               <span className="text-pink-400">♥</span> {deck.likes.toLocaleString()}
             </div>
             <div className="text-sm text-gray-400">
-              <span className="text-gray-500">👁</span> {deck.views.toLocaleString()}
+              <span className="text-gray-400">👁</span> {deck.views.toLocaleString()}
             </div>
             <div className="flex items-center gap-2 mt-1">
               <button
@@ -194,7 +194,7 @@ function DeckRow({
                 className={`text-xl leading-none transition-all duration-150 active:scale-125 ${
                   isFavorited
                     ? "text-amber-400 scale-110"
-                    : "text-gray-600 hover:text-amber-400"
+                    : "text-gray-400 hover:text-amber-400"
                 }`}
               >
                 {isFavorited ? "★" : "☆"}
@@ -212,7 +212,7 @@ function DeckRow({
           </div>
         </div>
 
-        <div className="mt-2 text-xs text-gray-600">
+        <div className="mt-2 text-xs text-gray-400">
           {expanded ? "▲ Collapse" : "▼ Expand deck list"}
         </div>
       </div>
@@ -461,17 +461,17 @@ function MyDecksSection({
                         className={`shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border transition-colors ${
                           isPublic
                             ? "bg-green-500/15 text-green-400 border-green-500/30 hover:bg-red-500/15 hover:text-red-400 hover:border-red-500/30"
-                            : "bg-gray-800 text-gray-500 border-gray-700 hover:bg-green-500/15 hover:text-green-400 hover:border-green-500/30"
+                            : "bg-gray-800/80 text-gray-300 border-gray-600 hover:bg-green-500/15 hover:text-green-400 hover:border-green-500/30"
                         } ${toggling ? "opacity-50 cursor-wait" : ""}`}
                       >
                         {isPublic ? "🌐 Public" : "🔒 Private"}
                       </button>
                     </div>
-                    <div className="text-sm text-gray-500 mt-0.5">
+                    <div className="text-sm text-gray-300 mt-0.5">
                       {deck.av
-                        ? <span>Avatar: <span className="text-gray-400">{deck.av}</span></span>
-                        : <span className="text-gray-600">No avatar</span>}
-                      <span className="ml-2 text-gray-600">· {cardCount} cards · Saved {savedDate}</span>
+                        ? <span>Avatar: <span className="text-gray-200">{deck.av}</span></span>
+                        : <span className="text-gray-400">No avatar</span>}
+                      <span className="ml-2 text-gray-400">· {cardCount} cards · Saved {savedDate}</span>
                     </div>
                   </div>
                   <div
@@ -501,7 +501,7 @@ function MyDecksSection({
                     </div>
                   </div>
                 </div>
-                <div className="mt-2 text-xs text-gray-600">
+                <div className="mt-2 text-xs text-gray-400">
                   {expanded ? "▲ Collapse" : "▼ Expand deck list"}
                 </div>
               </div>
@@ -555,10 +555,10 @@ function CommunityDeckList({
               <div className="flex items-start justify-between gap-4">
                 <div className="min-w-0 flex-1">
                   <h3 className="font-bold text-white text-base leading-tight">{deck.name}</h3>
-                  <div className="text-sm text-gray-500 mt-0.5">
-                    by <span className="text-gray-400">@{deck.ownerName}</span>
-                    {deck.av && <span className="ml-2 text-gray-600">· Avatar: <span className="text-gray-400">{deck.av}</span></span>}
-                    <span className="ml-2 text-gray-600">· {cardCount} cards</span>
+                  <div className="text-sm text-gray-300 mt-0.5">
+                    by <span className="text-gray-200">@{deck.ownerName}</span>
+                    {deck.av && <span className="ml-2 text-gray-400">· Avatar: <span className="text-gray-200">{deck.av}</span></span>}
+                    <span className="ml-2 text-gray-400">· {cardCount} cards</span>
                   </div>
                 </div>
                 <div
@@ -576,7 +576,7 @@ function CommunityDeckList({
                       className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
                         deck.userLiked
                           ? "bg-pink-500/20 text-pink-400 border-pink-500/30 hover:bg-pink-500/30"
-                          : "bg-gray-800 text-gray-400 border-gray-700 hover:text-pink-400 hover:border-pink-500/30"
+                          : "bg-gray-800/80 text-gray-300 border-gray-600 hover:text-pink-400 hover:border-pink-500/30"
                       }`}
                     >
                       <span>{deck.userLiked ? "♥" : "♡"}</span>
@@ -597,7 +597,7 @@ function CommunityDeckList({
                   </div>
                 </div>
               </div>
-              <div className="mt-2 text-xs text-gray-600">
+              <div className="mt-2 text-xs text-gray-400">
                 {expanded ? "▲ Collapse" : "▼ Expand deck list"}
               </div>
             </div>
