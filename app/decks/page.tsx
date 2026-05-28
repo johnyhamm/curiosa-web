@@ -520,16 +520,34 @@ function MyDecksSection({
 function CommunityDeckList({
   decks,
   onLike,
+  onCopy,
   isSignedIn,
   expandedId,
   setExpandedId,
 }: {
   decks: PublicBuilderDeck[];
   onLike: (id: string) => void;
+  onCopy: (deck: PublicBuilderDeck) => Promise<boolean>;
   isSignedIn: boolean;
   expandedId: string | null;
   setExpandedId: (id: string | null) => void;
 }) {
+  const [copyingId, setCopyingId] = useState<string | null>(null);
+  const [copiedIds, setCopiedIds] = useState<Set<string>>(new Set());
+
+  async function handleCopy(e: React.MouseEvent, deck: PublicBuilderDeck) {
+    e.stopPropagation();
+    if (!isSignedIn) { alert("Sign in to copy decks."); return; }
+    if (copyingId) return;
+    setCopyingId(deck.id);
+    const ok = await onCopy(deck);
+    setCopyingId(null);
+    if (ok) {
+      setCopiedIds(prev => new Set([...prev, deck.id]));
+      setTimeout(() => setCopiedIds(prev => { const s = new Set(prev); s.delete(deck.id); return s; }), 2500);
+    }
+  }
+
   if (decks.length === 0) return <p className="text-sm text-gray-600 py-2">No decks yet.</p>;
 
   return (
@@ -538,6 +556,8 @@ function CommunityDeckList({
         const cardCount = deck.e.reduce((s, e) => s + e[1], 0);
         const expanded = expandedId === deck.id;
         const cardStyle = getDeckCardStyle(deck.av);
+        const isCopying = copyingId === deck.id;
+        const isCopied  = copiedIds.has(deck.id);
 
         return (
           <div
@@ -565,7 +585,7 @@ function CommunityDeckList({
                   className="shrink-0 flex flex-col items-end gap-2"
                   onClick={(e) => e.stopPropagation()}
                 >
-                  <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-2 flex-wrap justify-end">
                     {/* Like button */}
                     <button
                       onClick={() => {
@@ -582,6 +602,23 @@ function CommunityDeckList({
                       <span>{deck.userLiked ? "♥" : "♡"}</span>
                       <span>{deck.likes}</span>
                     </button>
+
+                    {/* Copy to my decks */}
+                    <button
+                      onClick={(e) => handleCopy(e, deck)}
+                      disabled={isCopying || isCopied}
+                      title={isCopied ? "Saved to your decks!" : "Copy this deck to your saved decks"}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                        isCopied
+                          ? "bg-green-500/20 text-green-400 border-green-500/30"
+                          : isCopying
+                          ? "bg-gray-800/80 text-gray-400 border-gray-600 opacity-60 cursor-wait"
+                          : "bg-gray-800/80 text-gray-300 border-gray-600 hover:bg-indigo-500/20 hover:text-indigo-300 hover:border-indigo-500/40"
+                      }`}
+                    >
+                      {isCopied ? "✓ Saved!" : isCopying ? "Saving…" : "⊕ Copy Deck"}
+                    </button>
+
                     <a
                       href={buildTCGplayerUrlFromBuilderDeck(deck.e, deck.av)}
                       target="_blank"
@@ -614,11 +651,13 @@ function CommunityDecksSection({
   recent,
   topLiked,
   onLike,
+  onCopy,
   isSignedIn,
 }: {
   recent: PublicBuilderDeck[];
   topLiked: PublicBuilderDeck[];
   onLike: (id: string) => void;
+  onCopy: (deck: PublicBuilderDeck) => Promise<boolean>;
   isSignedIn: boolean;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
@@ -639,6 +678,7 @@ function CommunityDecksSection({
         <CommunityDeckList
           decks={recent}
           onLike={onLike}
+          onCopy={onCopy}
           isSignedIn={isSignedIn}
           expandedId={expandedId}
           setExpandedId={setExpandedId}
@@ -657,6 +697,7 @@ function CommunityDecksSection({
         <CommunityDeckList
           decks={topLiked}
           onLike={onLike}
+          onCopy={onCopy}
           isSignedIn={isSignedIn}
           expandedId={expandedId}
           setExpandedId={setExpandedId}
@@ -752,6 +793,32 @@ function DecksPageContent() {
     }
   }, [communityDecks, patchCommunityDeck]);
 
+  // Copy a community deck into the current user's saved decks
+  const handleCopyDeck = useCallback(async (src: PublicBuilderDeck): Promise<boolean> => {
+    const res = await fetch("/api/user/builder-decks", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: src.name,
+        avatarName: src.av,
+        entries: src.e,
+        isPublic: false, // copies default to private
+      }),
+    });
+    if (!res.ok) return false;
+    const { id } = await res.json() as { ok: boolean; id: string };
+    const newDeck: SavedBuilderDeck = {
+      id,
+      name: src.name,
+      av: src.av,
+      at: new Date().toISOString(),
+      e: src.e,
+      pub: false,
+    };
+    setMyDecks(prev => [newDeck, ...prev]);
+    return true;
+  }, []);
+
   // Client-side search (instant — no API round-trips).
   // Falls back to live API automatically when query has no local matches.
   const { results: allResults, total, isLoading, isLiveFallback } = useDeckSearch(query, avatar, sortBy, 500);
@@ -838,6 +905,7 @@ function DecksPageContent() {
         recent={communityDecks.recent}
         topLiked={communityDecks.topLiked}
         onLike={handleLikeDeck}
+        onCopy={handleCopyDeck}
         isSignedIn={!!isSignedIn}
       />
 
