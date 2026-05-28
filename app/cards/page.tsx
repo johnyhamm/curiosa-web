@@ -155,7 +155,9 @@ function CardCard({ card }: { card: Card }) {
               bg-[#F0A500] hover:bg-[#d4920a] text-gray-950 transition-colors whitespace-nowrap"
             title="Buy on TCGplayer (affiliate link)"
           >
-            🛒 Buy on TCGplayer
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/tcgplayer-logo.png" alt="TCGplayer" width={18} height={18} style={{ display: "inline-block", verticalAlign: "middle" }} />
+            Buy on TCGplayer
           </a>
         </div>
       </div>

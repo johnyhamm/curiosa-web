@@ -204,7 +204,9 @@ function DeckList({ data, deckId }: { data: FullDeckData; deckId: string }) {
               bg-[#F0A500] hover:bg-[#d4920a] text-gray-950 transition-colors whitespace-nowrap"
             title="Buy this decklist on TCGplayer (affiliate link)"
           >
-            🛒 Buy on TCGplayer
+            {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/tcgplayer-logo.png" alt="TCGplayer" width={18} height={18} style={{ display: "inline-block", verticalAlign: "middle" }} />
+            Buy on TCGplayer
           </a>
           <a
             href={`https://curiosa.io/decks/${deckId}`}
@@ -363,7 +365,9 @@ function MyDecksSection({ decks }: { decks: SavedBuilderDeck[] }) {
                           text-gray-950 rounded-lg transition-colors whitespace-nowrap"
                         title="Buy this decklist on TCGplayer (affiliate link)"
                       >
-                        🛒 Buy on TCGplayer
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+            <img src="/tcgplayer-logo.png" alt="TCGplayer" width={18} height={18} style={{ display: "inline-block", verticalAlign: "middle" }} />
+            Buy on TCGplayer
                       </a>
                     </div>
                   </div>
