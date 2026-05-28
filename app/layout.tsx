@@ -45,11 +45,34 @@ async function TCGPlayerBanner() {
   }
   return (
     <div className="w-full bg-black flex justify-center overflow-hidden">
+      {/* Mobile banner (< md) */}
+      <a
+        rel="sponsored"
+        href="https://partner.tcgplayer.com/c/7336784/3913672/21018"
+        target="_top"
+        id="3913672"
+        className="block md:hidden"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="https://a.impactradius-go.com/display-ad/21018-3913672"
+          alt="Shop on TCGplayer"
+          width={640}
+          height={100}
+          style={{ maxWidth: "100%", height: "auto", display: "block" }}
+        />
+      </a>
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img height={0} width={0} src="https://imp.pxf.io/i/7336784/3913672/21018"
+        style={{ position: "absolute", visibility: "hidden" }} alt="" />
+
+      {/* Desktop banner (md+) */}
       <a
         rel="sponsored"
         href="https://partner.tcgplayer.com/c/7336784/3904322/21018"
         target="_top"
         id="3904322"
+        className="hidden md:block"
       >
         {/* eslint-disable-next-line @next/next/no-img-element */}
         <img
@@ -60,15 +83,9 @@ async function TCGPlayerBanner() {
           style={{ maxWidth: "100%", height: "auto", display: "block" }}
         />
       </a>
-      {/* Tracking pixel */}
       {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img
-        height={0}
-        width={0}
-        src="https://imp.pxf.io/i/7336784/3904322/21018"
-        style={{ position: "absolute", visibility: "hidden" }}
-        alt=""
-      />
+      <img height={0} width={0} src="https://imp.pxf.io/i/7336784/3904322/21018"
+        style={{ position: "absolute", visibility: "hidden" }} alt="" />
     </div>
   );
 }
