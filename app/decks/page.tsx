@@ -29,6 +29,69 @@ function elementBadge(el: string) {
   return colors[el] ?? "bg-gray-800 text-gray-400";
 }
 
+// ─── Element gradient helpers ─────────────────────────────────────────────────
+
+/** RGB values (no alpha) used to build gradients */
+const ELEMENT_RGB: Record<string, [number, number, number]> = {
+  Fire:  [120, 20,  20],
+  Water: [15,  45,  110],
+  Earth: [15,  65,  35],
+  Air:   [10,  55,  100],
+};
+
+const ELEMENT_BORDER: Record<string, string> = {
+  Fire:  "rgba(153, 27, 27, 0.55)",
+  Water: "rgba(30, 64, 175, 0.55)",
+  Earth: "rgba(22, 101, 52, 0.55)",
+  Air:   "rgba(14, 116, 144, 0.55)",
+};
+
+function getElementStyle(elements: string[]): React.CSSProperties {
+  const known = elements.filter((e) => ELEMENT_RGB[e]);
+  if (!known.length) return {};                          // fall back to Tailwind defaults
+
+  const alpha = 0.55;
+  const stops = known.slice(0, 4).map((e, i, arr) => {
+    const [r, g, b] = ELEMENT_RGB[e];
+    const pct = arr.length === 1 ? (i === 0 ? "0%" : "100%") : `${Math.round((i / (arr.length - 1)) * 100)}%`;
+    return `rgba(${r},${g},${b},${alpha}) ${pct}`;
+  });
+
+  // Single-element: fade to near-black
+  if (known.length === 1) {
+    const [r, g, b] = ELEMENT_RGB[known[0]];
+    return {
+      background: `linear-gradient(135deg, rgba(${r},${g},${b},${alpha}) 0%, rgba(${r},${g},${b},0.15) 60%, rgb(17,24,39) 100%)`,
+      borderColor: ELEMENT_BORDER[known[0]],
+    };
+  }
+
+  return {
+    background: `linear-gradient(135deg, ${stops.join(", ")})`,
+    borderColor: ELEMENT_BORDER[known[0]],
+  };
+}
+
+/** Maps an avatar name to its associated elements (best-effort heuristic). */
+function avatarToElements(avatarName: string | null): string[] {
+  if (!avatarName) return [];
+  const name = avatarName.toLowerCase();
+  if (name.includes("fire"))  return ["Fire"];
+  if (name.includes("water")) return ["Water"];
+  if (name.includes("earth")) return ["Earth"];
+  if (name.includes("air"))   return ["Air"];
+  // Thematic avatars
+  const MAP: Record<string, string[]> = {
+    flamecaller:  ["Fire"],
+    waveshaper:   ["Water"],
+    geomancer:    ["Earth"],
+    druid:        ["Earth"],
+    sparkmage:    ["Air"],
+    elementalist: ["Fire", "Water", "Earth", "Air"],
+  };
+  return MAP[name] ?? [];
+}
+
 function DeckRow({
   deck,
   onExpand,
@@ -47,9 +110,13 @@ function DeckRow({
   onToggleFavorite: (deck: DeckIndexEntry) => void;
 }) {
   const isLoading = loadingId === deck.id;
+  const elementStyle = getElementStyle(deck.elements);
 
   return (
-    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden hover:border-gray-700 transition-colors">
+    <div
+      className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden hover:brightness-110 transition-all"
+      style={elementStyle}
+    >
       <div
         className="p-4 cursor-pointer"
         onClick={() => onExpand(deck.id)}
@@ -337,11 +404,15 @@ function MyDecksSection({
           const expanded = expandedId === deck.id;
           const isPublic = deck.pub ?? false;
           const toggling = togglingId === deck.id;
+          const elems = avatarToElements(deck.av);
+          const elementStyle = getElementStyle(elems);
+          const hasBorderStyle = !!elementStyle.borderColor;
 
           return (
             <div
               key={deck.id}
-              className="bg-gray-900 border border-amber-900/30 rounded-xl overflow-hidden hover:border-amber-700/40 transition-colors"
+              className={`bg-gray-900 border rounded-xl overflow-hidden hover:brightness-110 transition-all ${hasBorderStyle ? "border-gray-800" : "border-amber-900/30"}`}
+              style={elementStyle}
             >
               <div
                 className="p-4 cursor-pointer"
@@ -438,11 +509,13 @@ function CommunityDeckList({
       {decks.map(deck => {
         const cardCount = deck.e.reduce((s, e) => s + e[1], 0);
         const expanded = expandedId === deck.id;
+        const elementStyle = getElementStyle(avatarToElements(deck.av));
 
         return (
           <div
             key={deck.id}
-            className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden hover:border-gray-700 transition-colors"
+            className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden hover:brightness-110 transition-all"
+            style={elementStyle}
           >
             <div
               className="p-4 cursor-pointer"
