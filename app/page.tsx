@@ -4,6 +4,7 @@ import { CardOfTheDay } from "@/app/components/CardOfTheDay";
 import { CodexTipOfTheDay } from "@/app/components/CodexTipOfTheDay";
 import { NewsSection } from "@/app/components/NewsSection";
 import { HomeSearch } from "@/app/components/HomeSearch";
+import { AffiliateBanners } from "@/app/components/AffiliateBanners";
 
 // Regenerate at most every 60 s so the daily picks flip within a minute
 // of UTC midnight rather than up to an hour late.
@@ -229,6 +230,9 @@ export default function Home() {
       <Suspense fallback={null}>
         <NewsSection />
       </Suspense>
+
+      {/* Affiliates & Partners */}
+      <AffiliateBanners />
 
       {/* Community & Resources */}
       <div className="mt-12">
