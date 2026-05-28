@@ -134,20 +134,14 @@ function DeckRow({
   );
 }
 
-function buildTCGplayerUrl(decklist: ApiDeckCard[], avatar: ApiDeckCard | null): string {
-  const allCards = [
-    ...decklist,
-    ...(avatar ? [avatar] : []),
-  ];
-
-  // Use + for spaces to match TCGplayer mass entry format (form-encoding style)
+// Core URL builder — accepts any list of {name, qty} pairs.
+function tcgplayerMassEntryUrl(cards: { name: string; qty: number }[]): string {
   const cardStr =
-    allCards
-      .filter((e) => (e.quantity ?? 1) > 0)
-      .map((e) => `${e.quantity ?? 1}+${e.card.name.replace(/ /g, "+")}`)
+    cards
+      .filter((c) => c.qty > 0)
+      .map((c) => `${c.qty}+${c.name.replace(/ /g, "+")}`)
       .join("||") + "||";
 
-  // "Sorcery+Contested+Realm" (no colon) is what TCGplayer mass entry expects
   const massEntryUrl =
     "https://www.tcgplayer.com/massentry" +
     "?productline=Sorcery+Contested+Realm" +
@@ -159,6 +153,24 @@ function buildTCGplayerUrl(decklist: ApiDeckCard[], avatar: ApiDeckCard | null):
     "?u=" +
     encodeURIComponent(massEntryUrl)
   );
+}
+
+// For curiosa.io decks (ApiDeckCard[] + optional avatar)
+function buildTCGplayerUrl(decklist: ApiDeckCard[], avatar: ApiDeckCard | null): string {
+  const cards = [
+    ...decklist,
+    ...(avatar ? [avatar] : []),
+  ].map((e) => ({ name: e.card.name, qty: e.quantity ?? 1 }));
+  return tcgplayerMassEntryUrl(cards);
+}
+
+// For user-built decks (SlimEntry[] + optional avatar name)
+function buildTCGplayerUrlFromBuilderDeck(entries: [string, number, ...unknown[]][], avatarName: string | null): string {
+  const cards = [
+    ...entries.map(([name, qty]) => ({ name: name as string, qty: qty as number })),
+    ...(avatarName ? [{ name: avatarName, qty: 1 }] : []),
+  ];
+  return tcgplayerMassEntryUrl(cards);
 }
 
 function DeckList({ data, deckId }: { data: FullDeckData; deckId: string }) {
@@ -276,13 +288,25 @@ function MyDecksSection({ decks }: { decks: SavedBuilderDeck[] }) {
                 </div>
                 <div className="text-xs text-gray-700 mt-0.5">Saved {savedDate}</div>
               </div>
-              <a
-                href={`/deckbuilder?load=${deck.id}`}
-                className="shrink-0 px-3 py-1.5 text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20
-                  text-amber-400 border border-amber-500/20 rounded-lg transition-colors"
-              >
-                Open in Builder →
-              </a>
+              <div className="shrink-0 flex flex-col gap-2">
+                <a
+                  href={`/deckbuilder?load=${deck.id}`}
+                  className="px-3 py-1.5 text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20
+                    text-amber-400 border border-amber-500/20 rounded-lg transition-colors text-center"
+                >
+                  Open in Builder →
+                </a>
+                <a
+                  href={buildTCGplayerUrlFromBuilderDeck(deck.e, deck.av)}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="px-3 py-1.5 text-xs font-semibold bg-[#F0A500] hover:bg-[#d4920a]
+                    text-gray-950 rounded-lg transition-colors text-center whitespace-nowrap"
+                  title="Buy this decklist on TCGplayer (affiliate link)"
+                >
+                  🛒 Buy on TCGplayer
+                </a>
+              </div>
             </div>
           );
         })}
@@ -393,6 +417,14 @@ function DecksPageContent() {
 
       {/* My Saved Decks */}
       {myDecks.length > 0 && <MyDecksSection decks={myDecks} />}
+
+      {/* Curiosa.io decks heading */}
+      <div className="flex items-center gap-3 mb-5">
+        <h2 className="text-sm font-bold uppercase tracking-widest text-amber-600 shrink-0">
+          Curiosa.IO Decks
+        </h2>
+        <div className="flex-1 border-t border-amber-900/40" />
+      </div>
 
       {/* Search controls */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-4 mb-6 flex flex-col gap-4">
