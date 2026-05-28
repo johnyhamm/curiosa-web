@@ -5,9 +5,9 @@ import { CodexTipOfTheDay } from "@/app/components/CodexTipOfTheDay";
 import { NewsSection } from "@/app/components/NewsSection";
 import { HomeSearch } from "@/app/components/HomeSearch";
 
-// Regenerate the home page at most every hour so the card-of-the-day
-// stays current without rebuilding on every request.
-export const revalidate = 3600;
+// Regenerate at most every 60 s so the daily picks flip within a minute
+// of UTC midnight rather than up to an hour late.
+export const revalidate = 60;
 
 // ── Sorcery card-frame feature widgets ───────────────────────────────────────
 
