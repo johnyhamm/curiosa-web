@@ -22,10 +22,10 @@ const BANNERS: AffiliateBanner[] = [
   {
     id: "bcw-1",
     href: "https://www.bcwsupplies.com?acc=sorcerysim&b=1",
-    imgSrc: "https://www.bcwsupplies.com/affiliate/banner/view/?acc=sorcerysim&b=1",
-    alt: "BCW Supplies – card storage & accessories",
-    width: 300,
-    height: 250,
+    imgSrc: "/sorcerysim_bcw_banner_fixed_600x100.png",
+    alt: "BCW Supplies – 10% off a retail order with code sorcerysim",
+    width: 600,
+    height: 100,
   },
 ];
 // ──────────────────────────────────────────────────────────────────────────
