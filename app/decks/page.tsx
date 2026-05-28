@@ -251,7 +251,55 @@ function DeckList({ data, deckId }: { data: FullDeckData; deckId: string }) {
 
 // ─── My Saved Decks section ───────────────────────────────────────────────────
 
+// ─── Expanded view for a user-built deck ─────────────────────────────────────
+
+function BuilderDeckList({ deck }: { deck: SavedBuilderDeck }) {
+  const typeOrder = ["Site", "Minion", "Magic", "Artifact", "Aura"];
+  const byType = new Map<string, Array<{ name: string; qty: number }>>();
+
+  for (const [name, qty, , type] of deck.e) {
+    const t = (type as string) || "Other";
+    if (!byType.has(t)) byType.set(t, []);
+    byType.get(t)!.push({ name: name as string, qty: qty as number });
+  }
+
+  return (
+    <div className="border-t border-gray-800 p-4 text-sm">
+      {deck.av && (
+        <div className="mb-3 p-2 bg-amber-900/20 border border-amber-800/40 rounded text-amber-300 text-xs">
+          Avatar: {deck.av}
+        </div>
+      )}
+      <div className="grid sm:grid-cols-2 gap-4">
+        {typeOrder.map((t) => {
+          const group = byType.get(t);
+          if (!group?.length) return null;
+          return (
+            <div key={t}>
+              <div className="font-semibold text-gray-300 mb-1 text-xs uppercase tracking-wide">
+                {t}s ({group.length})
+              </div>
+              <div className="space-y-0.5">
+                {group.sort((a, b) => a.name.localeCompare(b.name)).map((c) => (
+                  <div key={c.name} className="flex items-center gap-2 text-gray-400">
+                    <span className="text-amber-500 font-mono w-4 text-right shrink-0">{c.qty}x</span>
+                    <span className="flex-1">{c.name}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── My Saved Decks section ───────────────────────────────────────────────────
+
 function MyDecksSection({ decks }: { decks: SavedBuilderDeck[] }) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
   if (decks.length === 0) return null;
 
   return (
@@ -264,49 +312,69 @@ function MyDecksSection({ decks }: { decks: SavedBuilderDeck[] }) {
         <span className="text-xs text-gray-600 shrink-0">{decks.length} deck{decks.length !== 1 ? "s" : ""}</span>
       </div>
 
-      <div className="grid sm:grid-cols-2 gap-3">
+      <div className="flex flex-col gap-3">
         {decks.map(deck => {
           const cardCount = deck.e.reduce((s, e) => s + e[1], 0);
           const savedDate = new Date(deck.at).toLocaleDateString(undefined, {
             month: "short", day: "numeric", year: "numeric",
           });
+          const expanded = expandedId === deck.id;
+
           return (
             <div
               key={deck.id}
-              className="bg-gray-900 border border-amber-900/30 rounded-xl p-4 flex items-start justify-between gap-3
-                hover:border-amber-700/40 transition-colors"
+              className="bg-gray-900 border border-amber-900/30 rounded-xl overflow-hidden hover:border-amber-700/40 transition-colors"
             >
-              <div className="min-w-0">
-                <div className="font-semibold text-white text-sm truncate">{deck.name}</div>
-                <div className="text-xs text-gray-500 mt-0.5">
-                  {deck.av ? (
-                    <span>Avatar: <span className="text-gray-400">{deck.av}</span></span>
-                  ) : (
-                    <span className="text-gray-600">No avatar</span>
-                  )}
-                  <span className="ml-2 text-gray-600">· {cardCount} cards</span>
+              {/* Header row — click to expand */}
+              <div
+                className="p-4 cursor-pointer"
+                onClick={() => setExpandedId(expanded ? null : deck.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Enter" && setExpandedId(expanded ? null : deck.id)}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <div className="font-bold text-white text-base leading-tight">{deck.name}</div>
+                    <div className="text-sm text-gray-500 mt-0.5">
+                      {deck.av
+                        ? <span>Avatar: <span className="text-gray-400">{deck.av}</span></span>
+                        : <span className="text-gray-600">No avatar</span>}
+                      <span className="ml-2 text-gray-600">· {cardCount} cards · Saved {savedDate}</span>
+                    </div>
+                  </div>
+                  <div
+                    className="shrink-0 flex flex-col items-end gap-2"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center gap-2">
+                      <a
+                        href={`/deckbuilder?load=${deck.id}`}
+                        className="px-3 py-1.5 text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20
+                          text-amber-400 border border-amber-500/20 rounded-lg transition-colors"
+                      >
+                        Open in Builder →
+                      </a>
+                      <a
+                        href={buildTCGplayerUrlFromBuilderDeck(deck.e, deck.av)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-3 py-1.5 text-xs font-semibold bg-[#F0A500] hover:bg-[#d4920a]
+                          text-gray-950 rounded-lg transition-colors whitespace-nowrap"
+                        title="Buy this decklist on TCGplayer (affiliate link)"
+                      >
+                        🛒 Buy on TCGplayer
+                      </a>
+                    </div>
+                  </div>
                 </div>
-                <div className="text-xs text-gray-700 mt-0.5">Saved {savedDate}</div>
+                <div className="mt-2 text-xs text-gray-600">
+                  {expanded ? "▲ Collapse" : "▼ Expand deck list"}
+                </div>
               </div>
-              <div className="shrink-0 flex flex-col gap-2">
-                <a
-                  href={`/deckbuilder?load=${deck.id}`}
-                  className="px-3 py-1.5 text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20
-                    text-amber-400 border border-amber-500/20 rounded-lg transition-colors text-center"
-                >
-                  Open in Builder →
-                </a>
-                <a
-                  href={buildTCGplayerUrlFromBuilderDeck(deck.e, deck.av)}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="px-3 py-1.5 text-xs font-semibold bg-[#F0A500] hover:bg-[#d4920a]
-                    text-gray-950 rounded-lg transition-colors text-center whitespace-nowrap"
-                  title="Buy this decklist on TCGplayer (affiliate link)"
-                >
-                  🛒 Buy on TCGplayer
-                </a>
-              </div>
+
+              {/* Expanded decklist */}
+              {expanded && <BuilderDeckList deck={deck} />}
             </div>
           );
         })}
