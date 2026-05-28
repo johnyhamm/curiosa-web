@@ -72,21 +72,55 @@ function getElementStyle(elements: string[]): React.CSSProperties {
   };
 }
 
-/** Maps an avatar name to its associated elements (best-effort heuristic). */
+/** Maps every avatar name to its element(s). */
 function avatarToElements(avatarName: string | null): string[] {
   if (!avatarName) return [];
   const name = avatarName.toLowerCase();
+  // The four elemental avatars are explicit
   if (name.includes("fire"))  return ["Fire"];
   if (name.includes("water")) return ["Water"];
   if (name.includes("earth")) return ["Earth"];
   if (name.includes("air"))   return ["Air"];
-  // Thematic avatars
+  // All other avatars mapped by play-style / lore
   const MAP: Record<string, string[]> = {
-    flamecaller:  ["Fire"],
-    waveshaper:   ["Water"],
-    geomancer:    ["Earth"],
-    druid:        ["Earth"],
-    sparkmage:    ["Air"],
+    // ── Fire: aggression, combat, warriors, dragons ───────────────────────────
+    battlemage:   ["Fire"],   // ATK 3/DEF 3, kills → draws spells — pure aggro
+    bladedancer:  ["Fire"],   // multi-attack, aggressive melee
+    dragonlord:   ["Fire"],   // Dragons are the iconic Fire creatures
+    flamecaller:  ["Fire"],   // literally banishes fire minions for damage
+    interrogator: ["Fire"],   // allies strike avatar → opponent pays life
+    persecutor:   ["Fire"],   // hunts Evil, steps toward closest enemy
+    templar:      ["Fire"],   // discounts Knights/Sirs/Dames — warrior / holy-warrior
+
+    // ── Water: positioning, movement, protection ──────────────────────────────
+    harbinger:    ["Water"],  // predetermined squares — positional / board control
+    savior:       ["Water"],  // wards newly summoned minions — protective
+    waveshaper:   ["Water"],  // flooding, tapping without submerge
+
+    // ── Earth: sites, undead, nature, defense, dark magic ─────────────────────
+    animist:      ["Earth"],  // casts magics as Spirits — nature spirits
+    corruptor:    ["Earth"],  // transforms creatures to Undead/Monsters/Demons
+    deathspeaker: ["Earth"],  // banishes dead minions from cemetery, reanimates
+    druid:        ["Earth"],  // nearby sites deal damage — nature/terrain
+    geomancer:    ["Earth"],  // earth sites, Rubble — terrain manipulation
+    ironclad:     ["Earth"],  // takes 2 less damage — armored / tanky
+    necromancer:  ["Earth"],  // Skeleton tokens, undead
+    pathfinder:   ["Earth"],  // plays top of atlas — site/terrain explorer
+    "realm-eater":["Earth"],  // destroys sites, digests them
+    witch:        ["Earth"],  // curses: cost increase, life loss, power reduction
+
+    // ── Air: spells, scrying, trickery, illusion ──────────────────────────────
+    archimago:    ["Air"],    // recasts magic spells from cemetery
+    duplicator:   ["Air"],    // paired Uniques — mirrors / copies
+    enchantress:  ["Air"],    // animates auras — arcane / spell-weaving
+    imposter:     ["Air"],    // masks self as other avatars — deception
+    magician:     ["Air"],    // no atlas, seven-card hand — sleight-of-hand
+    seer:         ["Air"],    // scries top of deck / sites each turn
+    sorcerer:     ["Air"],    // taps to draw spells — pure spell engine
+    sparkmage:    ["Air"],    // damage = sum of Air thresholds on spells cast
+    spellslinger: ["Air"],    // starts with 4 spells in hand
+
+    // ── All elements ──────────────────────────────────────────────────────────
     elementalist: ["Fire", "Water", "Earth", "Air"],
   };
   return MAP[name] ?? [];
