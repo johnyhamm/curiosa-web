@@ -37,6 +37,42 @@ export const metadata: Metadata = {
 // simply hidden until NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is added to the environment.
 const clerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
+// TCGplayer Impact leaderboard banner — hidden for subscribers.
+async function TCGPlayerBanner() {
+  if (clerkConfigured) {
+    const { has } = await auth();
+    if (has({ plan: "user:monthly" })) return null;
+  }
+  return (
+    <div className="w-full bg-black flex justify-center overflow-hidden">
+      <a
+        rel="sponsored"
+        href="https://partner.tcgplayer.com/c/7336784/3913669/21018"
+        target="_top"
+        id="3913669"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src="https://a.impactradius-go.com/display-ad/21018-3913669"
+          alt="Shop on TCGplayer"
+          width={1940}
+          height={180}
+          style={{ maxWidth: "100%", height: "auto", display: "block" }}
+        />
+      </a>
+      {/* Tracking pixel */}
+      {/* eslint-disable-next-line @next/next/no-img-element */}
+      <img
+        height={0}
+        width={0}
+        src="https://imp.pxf.io/i/7336784/3913669/21018"
+        style={{ position: "absolute", visibility: "hidden" }}
+        alt=""
+      />
+    </div>
+  );
+}
+
 // Renders the Google AdSense script unless the signed-in user has an active
 // Clerk Billing subscription (Clerk + Stripe connected).
 async function ConditionalAds() {
@@ -67,6 +103,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       </head>
       <body className="min-h-full flex flex-col bg-gray-950 text-white">
       <FeedbackProvider>
+        <TCGPlayerBanner />
         <nav className="bg-gray-900 border-b border-gray-800 sticky top-0 z-50">
           <div className="max-w-6xl mx-auto px-4 sm:px-6">
             <div className="flex items-center justify-between h-14">
