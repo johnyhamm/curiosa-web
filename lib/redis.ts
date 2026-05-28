@@ -112,6 +112,8 @@ export async function publishBuilderDeck(
   await Promise.all([
     redis.set(`publicDeck:${deck.id}`, JSON.stringify(stored)),
     redis.zadd("publicDecks", { score: Date.now(), member: deck.id }),
+    // Init likes score only if not already present (NX) so republishing doesn't reset likes
+    redis.zadd("publicDecksLikes", { nx: true }, { score: 0, member: deck.id }),
   ]);
 }
 
@@ -121,20 +123,19 @@ export async function unpublishBuilderDeck(deckId: string): Promise<void> {
   await Promise.all([
     redis.del(`publicDeck:${deckId}`),
     redis.zrem("publicDecks", deckId),
+    redis.zrem("publicDecksLikes", deckId),
     redis.del(`deckLikes:${deckId}`),
   ]);
 }
 
-/** Return the most recent 50 public decks, newest first. */
-export async function getPublicBuilderDecks(
+/** Fetch a page of deck IDs with their like counts and userLiked flags. */
+async function fetchDecks(
+  ids: string[],
   viewerUserId: string | null
 ): Promise<PublicBuilderDeck[]> {
-  if (!redis) return [];
-  const ids = await redis.zrange("publicDecks", 0, 49, { rev: true });
   if (!ids.length) return [];
-
   const results = await Promise.all(
-    (ids as string[]).map(async (id) => {
+    ids.map(async (id) => {
       const [raw, likes, userLiked] = await Promise.all([
         redis!.get<string | StoredDeck>(`publicDeck:${id}`),
         redis!.scard(`deckLikes:${id}`),
@@ -148,8 +149,25 @@ export async function getPublicBuilderDecks(
       return { ...stored, likes: likes ?? 0, userLiked: !!userLiked } as PublicBuilderDeck;
     })
   );
-
   return results.filter(Boolean) as PublicBuilderDeck[];
+}
+
+/** Return the 10 most recently published public decks, newest first. */
+export async function getPublicBuilderDecks(
+  viewerUserId: string | null
+): Promise<PublicBuilderDeck[]> {
+  if (!redis) return [];
+  const ids = await redis.zrange("publicDecks", 0, 9, { rev: true });
+  return fetchDecks(ids as string[], viewerUserId);
+}
+
+/** Return the 10 most-liked public decks, highest first. */
+export async function getTopLikedDecks(
+  viewerUserId: string | null
+): Promise<PublicBuilderDeck[]> {
+  if (!redis) return [];
+  const ids = await redis.zrange("publicDecksLikes", 0, 9, { rev: true });
+  return fetchDecks(ids as string[], viewerUserId);
 }
 
 /** Toggle a like. Returns new total and whether the user now likes it. */
@@ -162,8 +180,10 @@ export async function toggleDeckLike(
   const alreadyLiked = await redis.sismember(key, userId);
   if (alreadyLiked) {
     await redis.srem(key, userId);
+    await redis.zincrby("publicDecksLikes", -1, deckId);
   } else {
     await redis.sadd(key, userId);
+    await redis.zincrby("publicDecksLikes", 1, deckId);
   }
   const count = (await redis.scard(key)) ?? 0;
   return { liked: !alreadyLiked, count };

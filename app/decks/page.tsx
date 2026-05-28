@@ -418,100 +418,148 @@ function MyDecksSection({
 
 // ─── Community Builder Decks section ─────────────────────────────────────────
 
-function CommunityDecksSection({
+function CommunityDeckList({
   decks,
   onLike,
   isSignedIn,
+  expandedId,
+  setExpandedId,
 }: {
   decks: PublicBuilderDeck[];
+  onLike: (id: string) => void;
+  isSignedIn: boolean;
+  expandedId: string | null;
+  setExpandedId: (id: string | null) => void;
+}) {
+  if (decks.length === 0) return <p className="text-sm text-gray-600 py-2">No decks yet.</p>;
+
+  return (
+    <div className="flex flex-col gap-3">
+      {decks.map(deck => {
+        const cardCount = deck.e.reduce((s, e) => s + e[1], 0);
+        const expanded = expandedId === deck.id;
+
+        return (
+          <div
+            key={deck.id}
+            className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden hover:border-gray-700 transition-colors"
+          >
+            <div
+              className="p-4 cursor-pointer"
+              onClick={() => setExpandedId(expanded ? null : deck.id)}
+              role="button"
+              tabIndex={0}
+              onKeyDown={(e) => e.key === "Enter" && setExpandedId(expanded ? null : deck.id)}
+            >
+              <div className="flex items-start justify-between gap-4">
+                <div className="min-w-0 flex-1">
+                  <h3 className="font-bold text-white text-base leading-tight">{deck.name}</h3>
+                  <div className="text-sm text-gray-500 mt-0.5">
+                    by <span className="text-gray-400">@{deck.ownerName}</span>
+                    {deck.av && <span className="ml-2 text-gray-600">· Avatar: <span className="text-gray-400">{deck.av}</span></span>}
+                    <span className="ml-2 text-gray-600">· {cardCount} cards</span>
+                  </div>
+                </div>
+                <div
+                  className="shrink-0 flex flex-col items-end gap-2"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <div className="flex items-center gap-2">
+                    {/* Like button */}
+                    <button
+                      onClick={() => {
+                        if (!isSignedIn) { alert("Sign in to like decks."); return; }
+                        onLike(deck.id);
+                      }}
+                      title={deck.userLiked ? "Unlike" : "Like this deck"}
+                      className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                        deck.userLiked
+                          ? "bg-pink-500/20 text-pink-400 border-pink-500/30 hover:bg-pink-500/30"
+                          : "bg-gray-800 text-gray-400 border-gray-700 hover:text-pink-400 hover:border-pink-500/30"
+                      }`}
+                    >
+                      <span>{deck.userLiked ? "♥" : "♡"}</span>
+                      <span>{deck.likes}</span>
+                    </button>
+                    <a
+                      href={buildTCGplayerUrlFromBuilderDeck(deck.e, deck.av)}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-[#F0A500] hover:bg-[#d4920a]
+                        text-gray-950 rounded-lg transition-colors whitespace-nowrap"
+                      title="Buy this decklist on TCGplayer (affiliate link)"
+                    >
+                      {/* eslint-disable-next-line @next/next/no-img-element */}
+                      <img src="/tcgplayer-logo.png" alt="TCGplayer" width={18} height={18} style={{ display: "inline-block", verticalAlign: "middle" }} />
+                      Buy on TCGplayer
+                    </a>
+                  </div>
+                </div>
+              </div>
+              <div className="mt-2 text-xs text-gray-600">
+                {expanded ? "▲ Collapse" : "▼ Expand deck list"}
+              </div>
+            </div>
+
+            {expanded && <BuilderDeckList deck={deck as unknown as SavedBuilderDeck} />}
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function CommunityDecksSection({
+  recent,
+  topLiked,
+  onLike,
+  isSignedIn,
+}: {
+  recent: PublicBuilderDeck[];
+  topLiked: PublicBuilderDeck[];
   onLike: (id: string) => void;
   isSignedIn: boolean;
 }) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
-  if (decks.length === 0) return null;
+  if (recent.length === 0 && topLiked.length === 0) return null;
 
   return (
-    <div className="mb-8">
-      <div className="flex items-center gap-3 mb-3">
-        <h2 className="text-sm font-bold uppercase tracking-widest text-amber-600 shrink-0">
-          Community Decks
-        </h2>
-        <div className="flex-1 border-t border-amber-900/40" />
-        <span className="text-xs text-gray-600 shrink-0">{decks.length} deck{decks.length !== 1 ? "s" : ""}</span>
+    <div className="mb-8 space-y-6">
+      {/* Recently Added */}
+      <div>
+        <div className="flex items-center gap-3 mb-3">
+          <h2 className="text-sm font-bold uppercase tracking-widest text-amber-600 shrink-0">
+            Community Decks — Recently Added
+          </h2>
+          <div className="flex-1 border-t border-amber-900/40" />
+          <span className="text-xs text-gray-600 shrink-0">{recent.length} deck{recent.length !== 1 ? "s" : ""}</span>
+        </div>
+        <CommunityDeckList
+          decks={recent}
+          onLike={onLike}
+          isSignedIn={isSignedIn}
+          expandedId={expandedId}
+          setExpandedId={setExpandedId}
+        />
       </div>
 
-      <div className="flex flex-col gap-3">
-        {decks.map(deck => {
-          const cardCount = deck.e.reduce((s, e) => s + e[1], 0);
-          const expanded = expandedId === deck.id;
-
-          return (
-            <div
-              key={deck.id}
-              className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden hover:border-gray-700 transition-colors"
-            >
-              <div
-                className="p-4 cursor-pointer"
-                onClick={() => setExpandedId(expanded ? null : deck.id)}
-                role="button"
-                tabIndex={0}
-                onKeyDown={(e) => e.key === "Enter" && setExpandedId(expanded ? null : deck.id)}
-              >
-                <div className="flex items-start justify-between gap-4">
-                  <div className="min-w-0 flex-1">
-                    <h3 className="font-bold text-white text-base leading-tight">{deck.name}</h3>
-                    <div className="text-sm text-gray-500 mt-0.5">
-                      by <span className="text-gray-400">@{deck.ownerName}</span>
-                      {deck.av && <span className="ml-2 text-gray-600">· Avatar: <span className="text-gray-400">{deck.av}</span></span>}
-                      <span className="ml-2 text-gray-600">· {cardCount} cards</span>
-                    </div>
-                  </div>
-                  <div
-                    className="shrink-0 flex flex-col items-end gap-2"
-                    onClick={(e) => e.stopPropagation()}
-                  >
-                    <div className="flex items-center gap-2">
-                      {/* Like button */}
-                      <button
-                        onClick={() => {
-                          if (!isSignedIn) { alert("Sign in to like decks."); return; }
-                          onLike(deck.id);
-                        }}
-                        title={deck.userLiked ? "Unlike" : "Like this deck"}
-                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
-                          deck.userLiked
-                            ? "bg-pink-500/20 text-pink-400 border-pink-500/30 hover:bg-pink-500/30"
-                            : "bg-gray-800 text-gray-400 border-gray-700 hover:text-pink-400 hover:border-pink-500/30"
-                        }`}
-                      >
-                        <span>{deck.userLiked ? "♥" : "♡"}</span>
-                        <span>{deck.likes}</span>
-                      </button>
-                      <a
-                        href={buildTCGplayerUrlFromBuilderDeck(deck.e, deck.av)}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-[#F0A500] hover:bg-[#d4920a]
-                          text-gray-950 rounded-lg transition-colors whitespace-nowrap"
-                        title="Buy this decklist on TCGplayer (affiliate link)"
-                      >
-                        {/* eslint-disable-next-line @next/next/no-img-element */}
-                        <img src="/tcgplayer-logo.png" alt="TCGplayer" width={18} height={18} style={{ display: "inline-block", verticalAlign: "middle" }} />
-                        Buy on TCGplayer
-                      </a>
-                    </div>
-                  </div>
-                </div>
-                <div className="mt-2 text-xs text-gray-600">
-                  {expanded ? "▲ Collapse" : "▼ Expand deck list"}
-                </div>
-              </div>
-
-              {expanded && <BuilderDeckList deck={deck as unknown as SavedBuilderDeck} />}
-            </div>
-          );
-        })}
+      {/* Top Liked */}
+      <div>
+        <div className="flex items-center gap-3 mb-3">
+          <h2 className="text-sm font-bold uppercase tracking-widest text-amber-600 shrink-0">
+            Community Decks — Most Liked
+          </h2>
+          <div className="flex-1 border-t border-amber-900/40" />
+          <span className="text-xs text-gray-600 shrink-0">{topLiked.length} deck{topLiked.length !== 1 ? "s" : ""}</span>
+        </div>
+        <CommunityDeckList
+          decks={topLiked}
+          onLike={onLike}
+          isSignedIn={isSignedIn}
+          expandedId={expandedId}
+          setExpandedId={setExpandedId}
+        />
       </div>
     </div>
   );
@@ -561,43 +609,47 @@ function DecksPageContent() {
     } else {
       // Refresh community decks so the change is reflected immediately
       fetch("/api/community/builder-decks")
-        .then(r => r.ok ? r.json() : [])
-        .then(d => setCommunityDecks(d as PublicBuilderDeck[]))
+        .then(r => r.ok ? r.json() : { recent: [], topLiked: [] })
+        .then(d => setCommunityDecks(d as { recent: PublicBuilderDeck[]; topLiked: PublicBuilderDeck[] }))
         .catch(console.error);
     }
   }, [myDecks]);
 
-  // Community (public) builder decks
-  const [communityDecks, setCommunityDecks] = useState<PublicBuilderDeck[]>([]);
+  // Community (public) builder decks — { recent, topLiked }
+  const [communityDecks, setCommunityDecks] = useState<{ recent: PublicBuilderDeck[]; topLiked: PublicBuilderDeck[] }>({ recent: [], topLiked: [] });
   useEffect(() => {
     fetch("/api/community/builder-decks")
-      .then(r => r.ok ? r.json() : [])
-      .then(d => setCommunityDecks(d as PublicBuilderDeck[]))
+      .then(r => r.ok ? r.json() : { recent: [], topLiked: [] })
+      .then(d => setCommunityDecks(d as { recent: PublicBuilderDeck[]; topLiked: PublicBuilderDeck[] }))
       .catch(console.error);
   }, [isSignedIn]);
 
+  // Patch a deck in both recent and topLiked arrays
+  const patchCommunityDeck = useCallback((id: string, patch: Partial<PublicBuilderDeck>) => {
+    setCommunityDecks(prev => ({
+      recent: prev.recent.map(d => d.id === id ? { ...d, ...patch } : d),
+      topLiked: prev.topLiked.map(d => d.id === id ? { ...d, ...patch } : d),
+    }));
+  }, []);
+
   // Toggle like on a community deck
   const handleLikeDeck = useCallback(async (id: string) => {
-    const deck = communityDecks.find(d => d.id === id);
+    const deck =
+      communityDecks.recent.find(d => d.id === id) ??
+      communityDecks.topLiked.find(d => d.id === id);
     if (!deck) return;
     const nowLiked = !deck.userLiked;
     // Optimistic update
-    setCommunityDecks(prev => prev.map(d =>
-      d.id === id ? { ...d, userLiked: nowLiked, likes: d.likes + (nowLiked ? 1 : -1) } : d
-    ));
+    patchCommunityDeck(id, { userLiked: nowLiked, likes: deck.likes + (nowLiked ? 1 : -1) });
     const res = await fetch(`/api/community/builder-decks/${id}/like`, { method: "POST" });
     if (res.ok) {
       const { liked, count } = await res.json() as { liked: boolean; count: number };
-      setCommunityDecks(prev => prev.map(d =>
-        d.id === id ? { ...d, userLiked: liked, likes: count } : d
-      ));
+      patchCommunityDeck(id, { userLiked: liked, likes: count });
     } else {
       // Revert
-      setCommunityDecks(prev => prev.map(d =>
-        d.id === id ? { ...d, userLiked: !nowLiked, likes: d.likes + (nowLiked ? -1 : 1) } : d
-      ));
+      patchCommunityDeck(id, { userLiked: !nowLiked, likes: deck.likes + (nowLiked ? -1 : 1) });
     }
-  }, [communityDecks]);
+  }, [communityDecks, patchCommunityDeck]);
 
   // Client-side search (instant — no API round-trips).
   // Falls back to live API automatically when query has no local matches.
@@ -682,7 +734,8 @@ function DecksPageContent() {
 
       {/* Community builder decks */}
       <CommunityDecksSection
-        decks={communityDecks}
+        recent={communityDecks.recent}
+        topLiked={communityDecks.topLiked}
         onLike={handleLikeDeck}
         isSignedIn={!!isSignedIn}
       />
