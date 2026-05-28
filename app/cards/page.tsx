@@ -46,6 +46,20 @@ function Chip({ label, active, colour, onClick }: {
   );
 }
 
+// ─── TCGplayer affiliate link for a single card ───────────────────────────────
+
+function buildTCGplayerCardUrl(cardName: string): string {
+  const searchUrl =
+    "https://www.tcgplayer.com/search/sorcery-contested-realm/product" +
+    "?q=" + encodeURIComponent(cardName) +
+    "&view=grid";
+  return (
+    "https://partner.tcgplayer.com/c/7336784/1780961/21018" +
+    "?u=" +
+    encodeURIComponent(searchUrl)
+  );
+}
+
 // ─── Card result display ──────────────────────────────────────────────────────
 
 function elementColor(el: string | null | undefined): string {
@@ -129,8 +143,20 @@ function CardCard({ card }: { card: Card }) {
           </p>
         )}
 
-        <div className="text-xs text-gray-600 mt-auto pt-1">
-          Sets: {card.sets.map((s) => s.name).join(", ")}
+        <div className="flex items-center justify-between mt-auto pt-1 gap-2">
+          <div className="text-xs text-gray-600">
+            Sets: {card.sets.map((s) => s.name).join(", ")}
+          </div>
+          <a
+            href={buildTCGplayerCardUrl(card.name)}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="shrink-0 inline-flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-semibold
+              bg-[#F0A500] hover:bg-[#d4920a] text-gray-950 transition-colors whitespace-nowrap"
+            title="Buy on TCGplayer (affiliate link)"
+          >
+            🛒 Buy on TCGplayer
+          </a>
         </div>
       </div>
 
