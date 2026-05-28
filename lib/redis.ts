@@ -1,4 +1,5 @@
 import { Redis } from "@upstash/redis";
+import type { SavedBuilderDeck, PublicBuilderDeck } from "@/lib/builder-deck";
 
 // Returns null if env vars aren't configured (local dev without Redis)
 function getRedis(): Redis | null {
@@ -86,4 +87,84 @@ export async function getSimStats(): Promise<SimStats> {
     last7Days,
     dailyBreakdown,
   };
+}
+
+// ─── Public Builder Decks ─────────────────────────────────────────────────────
+
+type StoredDeck = Omit<PublicBuilderDeck, "likes" | "userLiked">;
+
+/** Publish a deck snapshot to Redis and add it to the public index. */
+export async function publishBuilderDeck(
+  deck: SavedBuilderDeck,
+  ownerId: string,
+  ownerName: string
+): Promise<void> {
+  if (!redis) return;
+  const stored: StoredDeck = {
+    id: deck.id,
+    name: deck.name,
+    av: deck.av,
+    e: deck.e,
+    ownerId,
+    ownerName,
+    at: deck.at,
+  };
+  await Promise.all([
+    redis.set(`publicDeck:${deck.id}`, JSON.stringify(stored)),
+    redis.zadd("publicDecks", { score: Date.now(), member: deck.id }),
+  ]);
+}
+
+/** Remove a deck from the public index and delete its data + likes. */
+export async function unpublishBuilderDeck(deckId: string): Promise<void> {
+  if (!redis) return;
+  await Promise.all([
+    redis.del(`publicDeck:${deckId}`),
+    redis.zrem("publicDecks", deckId),
+    redis.del(`deckLikes:${deckId}`),
+  ]);
+}
+
+/** Return the most recent 50 public decks, newest first. */
+export async function getPublicBuilderDecks(
+  viewerUserId: string | null
+): Promise<PublicBuilderDeck[]> {
+  if (!redis) return [];
+  const ids = await redis.zrange("publicDecks", 0, 49, { rev: true });
+  if (!ids.length) return [];
+
+  const results = await Promise.all(
+    (ids as string[]).map(async (id) => {
+      const [raw, likes, userLiked] = await Promise.all([
+        redis!.get<string | StoredDeck>(`publicDeck:${id}`),
+        redis!.scard(`deckLikes:${id}`),
+        viewerUserId
+          ? redis!.sismember(`deckLikes:${id}`, viewerUserId)
+          : Promise.resolve(0),
+      ]);
+      if (!raw) return null;
+      const stored: StoredDeck =
+        typeof raw === "string" ? JSON.parse(raw) : raw;
+      return { ...stored, likes: likes ?? 0, userLiked: !!userLiked } as PublicBuilderDeck;
+    })
+  );
+
+  return results.filter(Boolean) as PublicBuilderDeck[];
+}
+
+/** Toggle a like. Returns new total and whether the user now likes it. */
+export async function toggleDeckLike(
+  deckId: string,
+  userId: string
+): Promise<{ liked: boolean; count: number }> {
+  if (!redis) return { liked: false, count: 0 };
+  const key = `deckLikes:${deckId}`;
+  const alreadyLiked = await redis.sismember(key, userId);
+  if (alreadyLiked) {
+    await redis.srem(key, userId);
+  } else {
+    await redis.sadd(key, userId);
+  }
+  const count = (await redis.scard(key)) ?? 0;
+  return { liked: !alreadyLiked, count };
 }

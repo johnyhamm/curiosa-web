@@ -6,7 +6,7 @@ import { useAuthSafe } from "@/lib/useAuthSafe";
 import { useDeckSearch } from "@/lib/deck-client-cache";
 import type { DeckIndexEntry } from "@/lib/decks";
 import type { ApiDeckCard } from "@/lib/simulator";
-import type { SavedBuilderDeck } from "@/lib/builder-deck";
+import type { SavedBuilderDeck, PublicBuilderDeck } from "@/lib/builder-deck";
 
 interface FullDeckData {
   decklist: ApiDeckCard[];
@@ -299,10 +299,24 @@ function BuilderDeckList({ deck }: { deck: SavedBuilderDeck }) {
 
 // ─── My Saved Decks section ───────────────────────────────────────────────────
 
-function MyDecksSection({ decks }: { decks: SavedBuilderDeck[] }) {
+function MyDecksSection({
+  decks,
+  onTogglePublic,
+}: {
+  decks: SavedBuilderDeck[];
+  onTogglePublic: (id: string) => void;
+}) {
   const [expandedId, setExpandedId] = useState<string | null>(null);
+  const [togglingId, setTogglingId] = useState<string | null>(null);
 
   if (decks.length === 0) return null;
+
+  const handleToggle = async (e: React.MouseEvent, id: string) => {
+    e.stopPropagation();
+    setTogglingId(id);
+    await onTogglePublic(id);
+    setTogglingId(null);
+  };
 
   return (
     <div className="mb-8">
@@ -321,13 +335,14 @@ function MyDecksSection({ decks }: { decks: SavedBuilderDeck[] }) {
             month: "short", day: "numeric", year: "numeric",
           });
           const expanded = expandedId === deck.id;
+          const isPublic = deck.pub ?? false;
+          const toggling = togglingId === deck.id;
 
           return (
             <div
               key={deck.id}
               className="bg-gray-900 border border-amber-900/30 rounded-xl overflow-hidden hover:border-amber-700/40 transition-colors"
             >
-              {/* Header row — click to expand */}
               <div
                 className="p-4 cursor-pointer"
                 onClick={() => setExpandedId(expanded ? null : deck.id)}
@@ -337,7 +352,22 @@ function MyDecksSection({ decks }: { decks: SavedBuilderDeck[] }) {
               >
                 <div className="flex items-start justify-between gap-4">
                   <div className="min-w-0 flex-1">
-                    <div className="font-bold text-white text-base leading-tight">{deck.name}</div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-white text-base leading-tight">{deck.name}</span>
+                      {/* Public / private badge */}
+                      <button
+                        onClick={(e) => handleToggle(e, deck.id)}
+                        disabled={toggling}
+                        title={isPublic ? "Public — click to make private" : "Private — click to make public"}
+                        className={`shrink-0 flex items-center gap-1 px-2 py-0.5 rounded-full text-xs font-semibold border transition-colors ${
+                          isPublic
+                            ? "bg-green-500/15 text-green-400 border-green-500/30 hover:bg-red-500/15 hover:text-red-400 hover:border-red-500/30"
+                            : "bg-gray-800 text-gray-500 border-gray-700 hover:bg-green-500/15 hover:text-green-400 hover:border-green-500/30"
+                        } ${toggling ? "opacity-50 cursor-wait" : ""}`}
+                      >
+                        {isPublic ? "🌐 Public" : "🔒 Private"}
+                      </button>
+                    </div>
                     <div className="text-sm text-gray-500 mt-0.5">
                       {deck.av
                         ? <span>Avatar: <span className="text-gray-400">{deck.av}</span></span>
@@ -349,7 +379,7 @@ function MyDecksSection({ decks }: { decks: SavedBuilderDeck[] }) {
                     className="shrink-0 flex flex-col items-end gap-2"
                     onClick={(e) => e.stopPropagation()}
                   >
-                    <div className="flex items-center gap-2">
+                    <div className="flex items-center gap-2 flex-wrap justify-end">
                       <a
                         href={`/deckbuilder?load=${deck.id}`}
                         className="px-3 py-1.5 text-xs font-medium bg-amber-500/10 hover:bg-amber-500/20
@@ -361,13 +391,13 @@ function MyDecksSection({ decks }: { decks: SavedBuilderDeck[] }) {
                         href={buildTCGplayerUrlFromBuilderDeck(deck.e, deck.av)}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="px-3 py-1.5 text-xs font-semibold bg-[#F0A500] hover:bg-[#d4920a]
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-[#F0A500] hover:bg-[#d4920a]
                           text-gray-950 rounded-lg transition-colors whitespace-nowrap"
                         title="Buy this decklist on TCGplayer (affiliate link)"
                       >
                         {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img src="/tcgplayer-logo.png" alt="TCGplayer" width={18} height={18} style={{ display: "inline-block", verticalAlign: "middle" }} />
-            Buy on TCGplayer
+                        <img src="/tcgplayer-logo.png" alt="TCGplayer" width={18} height={18} style={{ display: "inline-block", verticalAlign: "middle" }} />
+                        Buy on TCGplayer
                       </a>
                     </div>
                   </div>
@@ -377,8 +407,108 @@ function MyDecksSection({ decks }: { decks: SavedBuilderDeck[] }) {
                 </div>
               </div>
 
-              {/* Expanded decklist */}
               {expanded && <BuilderDeckList deck={deck} />}
+            </div>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
+// ─── Community Builder Decks section ─────────────────────────────────────────
+
+function CommunityDecksSection({
+  decks,
+  onLike,
+  isSignedIn,
+}: {
+  decks: PublicBuilderDeck[];
+  onLike: (id: string) => void;
+  isSignedIn: boolean;
+}) {
+  const [expandedId, setExpandedId] = useState<string | null>(null);
+
+  if (decks.length === 0) return null;
+
+  return (
+    <div className="mb-8">
+      <div className="flex items-center gap-3 mb-3">
+        <h2 className="text-sm font-bold uppercase tracking-widest text-amber-600 shrink-0">
+          Community Decks
+        </h2>
+        <div className="flex-1 border-t border-amber-900/40" />
+        <span className="text-xs text-gray-600 shrink-0">{decks.length} deck{decks.length !== 1 ? "s" : ""}</span>
+      </div>
+
+      <div className="flex flex-col gap-3">
+        {decks.map(deck => {
+          const cardCount = deck.e.reduce((s, e) => s + e[1], 0);
+          const expanded = expandedId === deck.id;
+
+          return (
+            <div
+              key={deck.id}
+              className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden hover:border-gray-700 transition-colors"
+            >
+              <div
+                className="p-4 cursor-pointer"
+                onClick={() => setExpandedId(expanded ? null : deck.id)}
+                role="button"
+                tabIndex={0}
+                onKeyDown={(e) => e.key === "Enter" && setExpandedId(expanded ? null : deck.id)}
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="min-w-0 flex-1">
+                    <h3 className="font-bold text-white text-base leading-tight">{deck.name}</h3>
+                    <div className="text-sm text-gray-500 mt-0.5">
+                      by <span className="text-gray-400">@{deck.ownerName}</span>
+                      {deck.av && <span className="ml-2 text-gray-600">· Avatar: <span className="text-gray-400">{deck.av}</span></span>}
+                      <span className="ml-2 text-gray-600">· {cardCount} cards</span>
+                    </div>
+                  </div>
+                  <div
+                    className="shrink-0 flex flex-col items-end gap-2"
+                    onClick={(e) => e.stopPropagation()}
+                  >
+                    <div className="flex items-center gap-2">
+                      {/* Like button */}
+                      <button
+                        onClick={() => {
+                          if (!isSignedIn) { alert("Sign in to like decks."); return; }
+                          onLike(deck.id);
+                        }}
+                        title={deck.userLiked ? "Unlike" : "Like this deck"}
+                        className={`flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-sm font-semibold border transition-colors ${
+                          deck.userLiked
+                            ? "bg-pink-500/20 text-pink-400 border-pink-500/30 hover:bg-pink-500/30"
+                            : "bg-gray-800 text-gray-400 border-gray-700 hover:text-pink-400 hover:border-pink-500/30"
+                        }`}
+                      >
+                        <span>{deck.userLiked ? "♥" : "♡"}</span>
+                        <span>{deck.likes}</span>
+                      </button>
+                      <a
+                        href={buildTCGplayerUrlFromBuilderDeck(deck.e, deck.av)}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="inline-flex items-center gap-1 px-3 py-1.5 text-xs font-semibold bg-[#F0A500] hover:bg-[#d4920a]
+                          text-gray-950 rounded-lg transition-colors whitespace-nowrap"
+                        title="Buy this decklist on TCGplayer (affiliate link)"
+                      >
+                        {/* eslint-disable-next-line @next/next/no-img-element */}
+                        <img src="/tcgplayer-logo.png" alt="TCGplayer" width={18} height={18} style={{ display: "inline-block", verticalAlign: "middle" }} />
+                        Buy on TCGplayer
+                      </a>
+                    </div>
+                  </div>
+                </div>
+                <div className="mt-2 text-xs text-gray-600">
+                  {expanded ? "▲ Collapse" : "▼ Expand deck list"}
+                </div>
+              </div>
+
+              {expanded && <BuilderDeckList deck={deck as unknown as SavedBuilderDeck} />}
             </div>
           );
         })}
@@ -410,6 +540,64 @@ function DecksPageContent() {
       .then(d => setMyDecks(d as SavedBuilderDeck[]))
       .catch(console.error);
   }, [isSignedIn]);
+
+  // Toggle a deck's public/private status
+  const handleTogglePublic = useCallback(async (id: string) => {
+    const deck = myDecks.find(d => d.id === id);
+    if (!deck) return;
+    const newPub = !(deck.pub ?? false);
+    // Optimistic update
+    setMyDecks(prev => prev.map(d => d.id === id ? { ...d, pub: newPub } : d));
+    const res = await fetch("/api/user/builder-decks", {
+      method: "PUT",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        id, name: deck.name, avatarName: deck.av, entries: deck.e, isPublic: newPub,
+      }),
+    });
+    if (!res.ok) {
+      // Revert on failure
+      setMyDecks(prev => prev.map(d => d.id === id ? { ...d, pub: !newPub } : d));
+    } else {
+      // Refresh community decks so the change is reflected immediately
+      fetch("/api/community/builder-decks")
+        .then(r => r.ok ? r.json() : [])
+        .then(d => setCommunityDecks(d as PublicBuilderDeck[]))
+        .catch(console.error);
+    }
+  }, [myDecks]);
+
+  // Community (public) builder decks
+  const [communityDecks, setCommunityDecks] = useState<PublicBuilderDeck[]>([]);
+  useEffect(() => {
+    fetch("/api/community/builder-decks")
+      .then(r => r.ok ? r.json() : [])
+      .then(d => setCommunityDecks(d as PublicBuilderDeck[]))
+      .catch(console.error);
+  }, [isSignedIn]);
+
+  // Toggle like on a community deck
+  const handleLikeDeck = useCallback(async (id: string) => {
+    const deck = communityDecks.find(d => d.id === id);
+    if (!deck) return;
+    const nowLiked = !deck.userLiked;
+    // Optimistic update
+    setCommunityDecks(prev => prev.map(d =>
+      d.id === id ? { ...d, userLiked: nowLiked, likes: d.likes + (nowLiked ? 1 : -1) } : d
+    ));
+    const res = await fetch(`/api/community/builder-decks/${id}/like`, { method: "POST" });
+    if (res.ok) {
+      const { liked, count } = await res.json() as { liked: boolean; count: number };
+      setCommunityDecks(prev => prev.map(d =>
+        d.id === id ? { ...d, userLiked: liked, likes: count } : d
+      ));
+    } else {
+      // Revert
+      setCommunityDecks(prev => prev.map(d =>
+        d.id === id ? { ...d, userLiked: !nowLiked, likes: d.likes + (nowLiked ? -1 : 1) } : d
+      ));
+    }
+  }, [communityDecks]);
 
   // Client-side search (instant — no API round-trips).
   // Falls back to live API automatically when query has no local matches.
@@ -488,7 +676,16 @@ function DecksPageContent() {
       </p>
 
       {/* My Saved Decks */}
-      {myDecks.length > 0 && <MyDecksSection decks={myDecks} />}
+      {myDecks.length > 0 && (
+        <MyDecksSection decks={myDecks} onTogglePublic={handleTogglePublic} />
+      )}
+
+      {/* Community builder decks */}
+      <CommunityDecksSection
+        decks={communityDecks}
+        onLike={handleLikeDeck}
+        isSignedIn={!!isSignedIn}
+      />
 
       {/* Curiosa.io decks heading */}
       <div className="flex items-center gap-3 mb-5">

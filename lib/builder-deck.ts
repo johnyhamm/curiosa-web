@@ -15,6 +15,21 @@ export interface SavedBuilderDeck {
   at: string;
   /** Card entries in compact form */
   e: SlimEntry[];
+  /** Whether the deck is publicly visible (default: false = private) */
+  pub?: boolean;
+}
+
+/** A public deck snapshot stored in Redis, visible to all users. */
+export interface PublicBuilderDeck {
+  id: string;
+  name: string;
+  av: string | null;
+  e: SlimEntry[];
+  ownerId: string;
+  ownerName: string;
+  at: string;
+  likes: number;
+  userLiked: boolean;
 }
 
 /** Subset of Clerk privateMetadata that this app cares about. */
