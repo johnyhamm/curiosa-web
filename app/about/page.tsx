@@ -27,16 +27,16 @@ export default function AboutPage() {
             <p>
               This site was built by{" "}
               <span className="text-white font-semibold">John Hammond</span>, who has been a fan of
-              Sorcery: Contested Realm since beta was released (missed out on the Kickstarter!).
+              Sorcery: Contested Realm since beta was released (missed out on the Kickstarter, womp womp).
             </p>
             <p>
-              I wanted to build a site that lets me and other players run simulations using the
-              decks they&apos;ve built against other decks.
+              I wanted to build a site for myself and other players to run simulations using the
+              decks they&apos;ve built against other decks. It just sounds fun.
             </p>
             <p>
               This is a work in progress and not perfect given the physical mechanics of the game
-              board. That being said, I will endeavour to add fixes and improvements and welcome
-              your feedback and bug reports as you use the site.
+              board. That being said, I will endeavor to continue improving this site regularly and
+              welcome your feedback and bug reports as you use the site.
             </p>
             <p className="text-amber-400 font-medium">Thanks for your support!</p>
           </div>
