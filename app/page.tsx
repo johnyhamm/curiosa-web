@@ -247,6 +247,7 @@ export default function Home() {
             { label: "TCGplayer",          href: "https://www.tcgplayer.com/search/sorcery-contested-realm/product?productLineName=sorcery-contested-realm&view=grid", icon: "🛒" },
             { label: "Team Covenant",      href: "https://teamcovenant.com",        icon: "⚔️" },
             { label: "Facebook Community", href: "https://www.facebook.com/share/g/1BsFJ16Re3/", icon: "👥" },
+            { label: "YouTube",            href: "https://www.youtube.com/watch?v=Ss-PtdOBHcQ", icon: "▶️" },
           ].map(({ label, href, icon }) => (
             <a
               key={href}
