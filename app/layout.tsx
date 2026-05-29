@@ -9,6 +9,7 @@ import { NavSubscribeButton } from "@/components/NavSubscribeButton";
 import { MobileNav } from "@/components/MobileNav";
 import { FeedbackProvider } from "@/app/components/FeedbackProvider";
 import { AskTheSorcerers } from "@/app/components/AskTheSorcerers";
+import { RotatingTopBanner } from "@/app/components/RotatingTopBanner";
 import "./globals.css";
 
 const geistSans = Geist({
@@ -37,57 +38,13 @@ export const metadata: Metadata = {
 // simply hidden until NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY is added to the environment.
 const clerkConfigured = !!process.env.NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY;
 
-// TCGplayer Impact leaderboard banner — hidden for subscribers.
-async function TCGPlayerBanner() {
+// Top banner — hidden for subscribers, otherwise rotates between affiliates.
+async function TopBanner() {
   if (clerkConfigured) {
     const { has } = await auth();
     if (has({ plan: "user:monthly" })) return null;
   }
-  return (
-    <div className="w-full bg-black flex justify-center overflow-hidden">
-      {/* Mobile banner (< md) */}
-      <a
-        rel="sponsored"
-        href="https://partner.tcgplayer.com/c/7336784/3913672/21018"
-        target="_top"
-        id="3913672"
-        className="block md:hidden"
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="https://a.impactradius-go.com/display-ad/21018-3913672"
-          alt="Shop on TCGplayer"
-          width={640}
-          height={100}
-          style={{ maxWidth: "100%", height: "auto", display: "block" }}
-        />
-      </a>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img height={0} width={0} src="https://imp.pxf.io/i/7336784/3913672/21018"
-        style={{ position: "absolute", visibility: "hidden" }} alt="" />
-
-      {/* Desktop banner (md+) */}
-      <a
-        rel="sponsored"
-        href="https://partner.tcgplayer.com/c/7336784/3904322/21018"
-        target="_top"
-        id="3904322"
-        className="hidden md:block"
-      >
-        {/* eslint-disable-next-line @next/next/no-img-element */}
-        <img
-          src="https://a.impactradius-go.com/display-ad/21018-3904322"
-          alt="Shop on TCGplayer"
-          width={600}
-          height={100}
-          style={{ maxWidth: "100%", height: "auto", display: "block" }}
-        />
-      </a>
-      {/* eslint-disable-next-line @next/next/no-img-element */}
-      <img height={0} width={0} src="https://imp.pxf.io/i/7336784/3904322/21018"
-        style={{ position: "absolute", visibility: "hidden" }} alt="" />
-    </div>
-  );
+  return <RotatingTopBanner />;
 }
 
 // Renders the Google AdSense script unless the signed-in user has an active
@@ -120,7 +77,7 @@ function AppShell({ children }: { children: React.ReactNode }) {
       </head>
       <body className="min-h-full flex flex-col bg-gray-950 text-white">
       <FeedbackProvider>
-        <TCGPlayerBanner />
+        <TopBanner />
         <nav className="bg-gray-900 border-b border-gray-800 sticky top-0 z-50">
           <div className="max-w-6xl mx-auto px-4 sm:px-6">
             <div className="flex items-center justify-between h-14">
