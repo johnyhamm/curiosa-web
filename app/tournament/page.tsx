@@ -47,7 +47,16 @@ interface GroupResult {
   phase: "pending" | "running" | "done";
 }
 
-type TournamentMode = "elim" | "worldcup";
+interface SwissEntry {
+  deck: Deck;
+  wins: number;
+  losses: number;
+  points: number;
+  /** IDs of decks already faced — prevents rematches. */
+  opponents: string[];
+}
+
+type TournamentMode = "elim" | "worldcup" | "swiss";
 type Phase = "setup" | "running" | "done";
 
 // ─── Featured tournaments ─────────────────────────────────────────────────────
@@ -83,6 +92,64 @@ const FEATURED_TOURNAMENTS: FeaturedTournament[] = [
     ],
   },
 ];
+
+// ─── Swiss helpers ────────────────────────────────────────────────────────────
+
+/**
+ * Generate pairings for one Swiss round.
+ * Entries are sorted by points (desc) then paired top-to-bottom.
+ * Rematches are avoided by skipping down the list; if unavoidable they're allowed.
+ */
+function swissPair(entries: SwissEntry[]): [SwissEntry, SwissEntry][] {
+  const sorted = [...entries].sort((a, b) =>
+    b.points !== a.points ? b.points - a.points : a.deck.name.localeCompare(b.deck.name)
+  );
+  const pairs: [SwissEntry, SwissEntry][] = [];
+  const used = new Set<string>();
+
+  for (let i = 0; i < sorted.length; i++) {
+    if (used.has(sorted[i].deck.id)) continue;
+    let paired = false;
+    // Try to find the highest-ranked available opponent we haven't faced
+    for (let j = i + 1; j < sorted.length; j++) {
+      if (used.has(sorted[j].deck.id)) continue;
+      if (!sorted[i].opponents.includes(sorted[j].deck.id)) {
+        pairs.push([sorted[i], sorted[j]]);
+        used.add(sorted[i].deck.id);
+        used.add(sorted[j].deck.id);
+        paired = true;
+        break;
+      }
+    }
+    // Fallback: allow rematch if every remaining opponent has already been faced
+    if (!paired) {
+      for (let j = i + 1; j < sorted.length; j++) {
+        if (!used.has(sorted[j].deck.id)) {
+          pairs.push([sorted[i], sorted[j]]);
+          used.add(sorted[i].deck.id);
+          used.add(sorted[j].deck.id);
+          break;
+        }
+      }
+    }
+  }
+  return pairs;
+}
+
+/** Buchholz score = sum of all opponents' current point totals. */
+function buchholzScore(entry: SwissEntry, all: SwissEntry[]): number {
+  return entry.opponents.reduce((sum, oppId) => {
+    const opp = all.find(e => e.deck.id === oppId);
+    return sum + (opp?.points ?? 0);
+  }, 0);
+}
+
+function sortedSwiss(entries: SwissEntry[]): SwissEntry[] {
+  return [...entries].sort((a, b) => {
+    if (b.points !== a.points) return b.points - a.points;
+    return buchholzScore(b, entries) - buchholzScore(a, entries);
+  });
+}
 
 // ─── Round labels ─────────────────────────────────────────────────────────────
 
@@ -268,6 +335,71 @@ function GroupTable({ group }: { group: GroupResult }) {
   );
 }
 
+// ─── Swiss standings table ────────────────────────────────────────────────────
+
+function SwissStandings({ entries, phase }: { entries: SwissEntry[]; phase: "running" | "done" }) {
+  const sorted = sortedSwiss(entries);
+  const showBuch = phase === "done";
+
+  return (
+    <div className="bg-gray-900 border border-gray-800 rounded-xl overflow-hidden">
+      <div className="flex items-center justify-between px-4 py-3 border-b border-gray-800">
+        <h3 className="text-sm font-bold text-white" style={{ fontFamily: "var(--font-cinzel)" }}>
+          Standings
+        </h3>
+        <span className={`text-xs font-medium ${phase === "done" ? "text-green-500" : "text-amber-400 animate-pulse"}`}>
+          {phase === "done" ? "Final" : "Live"}
+        </span>
+      </div>
+      <table className="w-full text-sm">
+        <thead>
+          <tr className="text-xs text-gray-600 border-b border-gray-800/50">
+            <th className="text-left px-4 py-2 font-medium">#</th>
+            <th className="text-left px-4 py-2 font-medium">Deck</th>
+            <th className="text-center px-2 py-2 font-medium">W</th>
+            <th className="text-center px-2 py-2 font-medium">L</th>
+            <th className="text-center px-3 py-2 font-medium">Pts</th>
+            {showBuch && <th className="text-center px-3 py-2 font-medium text-gray-700" title="Buchholz tiebreak: sum of opponents' points">Buch.</th>}
+          </tr>
+        </thead>
+        <tbody>
+          {sorted.map((entry, i) => {
+            const isFirst = phase === "done" && i === 0;
+            const buch = buchholzScore(entry, entries);
+            return (
+              <tr key={entry.deck.id}
+                className={`border-b border-gray-800/30 last:border-0 ${isFirst ? "bg-amber-950/20" : ""}`}>
+                <td className="px-4 py-2.5 text-gray-500 font-mono text-xs">{i + 1}</td>
+                <td className="px-4 py-2.5">
+                  <div className="flex items-center gap-2 min-w-0">
+                    {isFirst && <span className="text-amber-400 text-xs shrink-0">🏆</span>}
+                    <span className={`truncate max-w-[200px] ${isFirst ? "text-amber-300 font-bold" : "text-white"}`}>
+                      {entry.deck.name}
+                    </span>
+                  </div>
+                </td>
+                <td className="text-center px-2 py-2.5 font-mono text-gray-300">{entry.wins}</td>
+                <td className="text-center px-2 py-2.5 font-mono text-gray-300">{entry.losses}</td>
+                <td className={`text-center px-3 py-2.5 font-mono font-bold ${isFirst ? "text-amber-400" : "text-gray-300"}`}>
+                  {entry.points}
+                </td>
+                {showBuch && (
+                  <td className="text-center px-3 py-2.5 font-mono text-gray-600 text-xs">{buch}</td>
+                )}
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {showBuch && (
+        <p className="px-4 py-2 text-[10px] text-gray-700 border-t border-gray-800">
+          Buchholz = sum of all opponents&apos; final points. Used as tiebreaker only.
+        </p>
+      )}
+    </div>
+  );
+}
+
 // ─── Page ─────────────────────────────────────────────────────────────────────
 
 export default function TournamentPage() {
@@ -295,6 +427,11 @@ export default function TournamentPage() {
   const [wcChampion, setWcChampion] = useState<Deck | null>(null);
   const [wcPhase, setWcPhase] = useState<"setup" | "groups" | "knockouts" | "done">("setup");
 
+  // Swiss state
+  const [swissEntries, setSwissEntries] = useState<SwissEntry[]>([]);
+  const [swissRounds, setSwissRounds] = useState<BracketRound[]>([]);
+  const [swissPhase, setSwissPhase] = useState<"setup" | "running" | "done">("setup");
+
   useEffect(() => {
     if (!isSignedIn) return;
     fetch("/api/user/builder-decks")
@@ -307,7 +444,7 @@ export default function TournamentPage() {
 
   function changeMode(m: TournamentMode) {
     setMode(m);
-    const n = m === "worldcup" ? 8 : 4;
+    const n = (m === "worldcup" || m === "swiss") ? 8 : 4;
     setSize(n);
     setSlotIds(Array(n).fill(""));
     setSlotNames(Array(n).fill(""));
@@ -331,6 +468,9 @@ export default function TournamentPage() {
     setWcGroups([]);
     setWcKnockoutRounds([]);
     setWcChampion(null);
+    setSwissPhase("setup");
+    setSwissEntries([]);
+    setSwissRounds([]);
   }
 
   function setSlot(i: number, id: string, name?: string, override: DeckOverride | null = null) {
@@ -611,10 +751,96 @@ export default function TournamentPage() {
     setWcPhase("done");
   }
 
+  // ── Swiss ────────────────────────────────────────────────────────────────
+
+  async function runSwiss() {
+    const maxRounds = size <= 4 ? 2 : 3;
+    const allDecks = decks.filter(d => d.id.trim()).slice(0, size);
+
+    let currentEntries: SwissEntry[] = allDecks.map(d => ({
+      deck: d, wins: 0, losses: 0, points: 0, opponents: [],
+    }));
+
+    setSwissEntries(currentEntries);
+    setSwissRounds([]);
+    setSwissPhase("running");
+
+    for (let ri = 0; ri < maxRounds; ri++) {
+      const pairs = swissPair(currentEntries);
+
+      const matches: BracketMatch[] = pairs.map(([a, b], mi) => ({
+        id: `sw${ri}-m${mi}`,
+        deckA: a.deck, deckB: b.deck,
+        status: "pending" as const, winRateA: 0, winRateB: 0, winner: null,
+        gamesA: 0, gamesB: 0, seriesLength: 1,
+      }));
+
+      setSwissRounds(prev => [...prev, { label: `Round ${ri + 1} of ${maxRounds}`, matches }]);
+      await new Promise(r => setTimeout(r, 80));
+      setSwissRounds(prev => prev.map((rnd, idx) =>
+        idx !== ri ? rnd : { ...rnd, matches: rnd.matches.map(m => ({ ...m, status: "running" as const })) }
+      ));
+      await new Promise(r => setTimeout(r, 60));
+
+      // Collect round results to update standings after all matches finish
+      type RoundResult = { winnerId: string; loserId: string; resolvedA: Deck; resolvedB: Deck };
+      const roundResults: RoundResult[] = new Array(matches.length);
+
+      await Promise.all(matches.map(async (match, mi) => {
+        try {
+          const result = await simulateMatch(match.deckA, match.deckB, 1);
+          roundResults[mi] = {
+            winnerId: result.winner.id,
+            loserId: result.winner.id === result.resolvedA.id ? result.resolvedB.id : result.resolvedA.id,
+            resolvedA: result.resolvedA,
+            resolvedB: result.resolvedB,
+          };
+          setSwissRounds(prev => prev.map((rnd, rIdx) => rIdx !== ri ? rnd : {
+            ...rnd,
+            matches: rnd.matches.map((m, mIdx) => mIdx !== mi ? m : {
+              ...m, status: "done" as const,
+              deckA: result.resolvedA, deckB: result.resolvedB,
+              winRateA: result.winRateA, winRateB: result.winRateB,
+              gamesA: result.gamesA, gamesB: result.gamesB,
+              winner: result.winner,
+            }),
+          }));
+        } catch {
+          roundResults[mi] = { winnerId: match.deckA.id, loserId: match.deckB.id, resolvedA: match.deckA, resolvedB: match.deckB };
+          setSwissRounds(prev => prev.map((rnd, rIdx) => rIdx !== ri ? rnd : {
+            ...rnd,
+            matches: rnd.matches.map((m, mIdx) => mIdx !== mi ? m : { ...m, status: "error" as const, gamesA: 0, gamesB: 0 }),
+          }));
+        }
+      }));
+
+      // Update standings with this round's results
+      currentEntries = currentEntries.map(entry => {
+        let { wins, losses, points } = entry;
+        const opponents = [...entry.opponents];
+        for (const res of roundResults.filter(Boolean)) {
+          const participated = res.winnerId === entry.deck.id || res.loserId === entry.deck.id;
+          if (!participated) continue;
+          if (res.winnerId === entry.deck.id) { wins++; points += 3; }
+          else { losses++; }
+          const oppId = res.winnerId === entry.deck.id ? res.loserId : res.winnerId;
+          if (!opponents.includes(oppId)) opponents.push(oppId);
+        }
+        return { ...entry, wins, losses, points, opponents };
+      });
+
+      setSwissEntries(currentEntries);
+      await new Promise(r => setTimeout(r, 150));
+    }
+
+    setSwissPhase("done");
+  }
+
   // ── Render ─────────────────────────────────────────────────────────────────
 
-  const isElim = mode === "elim";
-  const isWC   = mode === "worldcup";
+  const isElim  = mode === "elim";
+  const isWC    = mode === "worldcup";
+  const isSwiss = mode === "swiss";
   const wcRunning = isWC && wcPhase !== "setup";
 
   return (
@@ -625,7 +851,9 @@ export default function TournamentPage() {
       <p className="text-gray-400 mb-8 text-sm">
         {isElim
           ? "Single-elimination tournament. Every matchup runs a full Monte Carlo simulation — the deck with the higher win rate advances."
-          : "World Cup format. 8 decks split into two groups of 4. Every deck plays every other in their group — win = 3 pts. Top 2 from each group advance to semi-finals."}
+          : isWC
+          ? "World Cup format. 8 decks split into two groups of 4. Every deck plays every other in their group — win = 3 pts. Top 2 from each group advance to semi-finals."
+          : `Swiss system. All ${size} decks play ${size <= 4 ? 2 : 3} rounds. Each round pairs decks with similar scores — no rematches. Winner has the most points; Buchholz score breaks ties.`}
       </p>
 
       {/* ── Featured tournaments ── */}
@@ -670,7 +898,7 @@ export default function TournamentPage() {
         <div className="flex items-center gap-3">
           <span className="text-sm font-medium text-gray-300">Format</span>
           <div className="flex gap-1 bg-gray-800 border border-gray-700 rounded-lg p-1">
-            {([["elim", "Single Elimination"], ["worldcup", "⚽ World Cup"]] as const).map(([m, label]) => (
+            {([["elim", "Single Elimination"], ["worldcup", "⚽ World Cup"], ["swiss", "🔄 Swiss"]] as const).map(([m, label]) => (
               <button key={m} type="button" onClick={() => changeMode(m)}
                 className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
                   mode === m ? "bg-amber-500 text-gray-950" : "text-gray-400 hover:text-white"
@@ -705,6 +933,24 @@ export default function TournamentPage() {
             Decks 1–4 → <span className="text-amber-400">Group A</span> &nbsp;·&nbsp;
             Decks 5–8 → <span className="text-sky-400">Group B</span>
           </p>
+        )}
+
+        {/* Swiss — size toggle (4 or 8) */}
+        {isSwiss && (
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-gray-300">Decks</span>
+            <div className="flex gap-1 bg-gray-800 border border-gray-700 rounded-lg p-1">
+              {([4, 8] as const).map(n => (
+                <button key={n} type="button" onClick={() => changeSize(n)}
+                  className={`px-4 py-1.5 rounded text-sm font-medium transition-colors ${
+                    size === n ? "bg-amber-500 text-gray-950" : "text-gray-400 hover:text-white"
+                  }`}>
+                  {n} Decks
+                </button>
+              ))}
+            </div>
+            <span className="text-xs text-gray-600">{size <= 4 ? "2 rounds" : "3 rounds"}</span>
+          </div>
         )}
 
         {/* Deck slots */}
@@ -769,18 +1015,22 @@ export default function TournamentPage() {
 
         {/* Run button */}
         <button type="button"
-          onClick={isWC ? runWorldCup : runElim}
-          disabled={!canRun || (isElim ? phase !== "setup" : wcPhase !== "setup")}
+          onClick={isSwiss ? runSwiss : isWC ? runWorldCup : runElim}
+          disabled={!canRun || (isElim ? phase !== "setup" : isWC ? wcPhase !== "setup" : swissPhase !== "setup")}
           className="bg-amber-500 hover:bg-amber-400 disabled:opacity-50 disabled:cursor-not-allowed
             text-gray-950 font-bold px-6 py-3 rounded-lg transition-colors text-base">
           {isElim
             ? (phase === "running" ? "Running tournament…"
               : !canRun ? `Choose ${size - filled} more deck${size - filled !== 1 ? "s" : ""}`
               : "▶ Run Tournament")
-            : (wcPhase === "groups" ? "Running group stage…"
+            : isWC
+            ? (wcPhase === "groups" ? "Running group stage…"
               : wcPhase === "knockouts" ? "Running knockouts…"
               : !canRun ? `Choose ${size - filled} more deck${size - filled !== 1 ? "s" : ""}`
-              : "▶ Run World Cup")}
+              : "▶ Run World Cup")
+            : (swissPhase === "running" ? "Running Swiss rounds…"
+              : !canRun ? `Choose ${size - filled} more deck${size - filled !== 1 ? "s" : ""}`
+              : "▶ Run Swiss")}
         </button>
       </div>
 
@@ -844,12 +1094,46 @@ export default function TournamentPage() {
         </div>
       )}
 
+      {/* ── Swiss results ── */}
+      {isSwiss && swissPhase !== "setup" && (
+        <div className="flex flex-col gap-8">
+          {/* Live standings — shown throughout */}
+          {swissEntries.length > 0 && (
+            <SwissStandings entries={swissEntries} phase={swissPhase === "done" ? "done" : "running"} />
+          )}
+
+          {/* Round-by-round match cards */}
+          {swissRounds.map((round, ri) => (
+            <section key={ri}>
+              <div className="flex items-center gap-3 mb-4">
+                <h2 className="text-sm font-bold uppercase tracking-widest text-gray-500 shrink-0">{round.label}</h2>
+                <div className="flex-1 border-t border-gray-800" />
+                <span className="text-xs text-gray-700 shrink-0">
+                  {round.matches.filter(m => m.status === "done").length}/{round.matches.length} done
+                </span>
+              </div>
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {round.matches.map(match => <MatchCard key={match.id} match={match} />)}
+              </div>
+            </section>
+          ))}
+
+          {/* Champion */}
+          {swissPhase === "done" && swissEntries.length > 0 && (
+            <ChampionBanner name={sortedSwiss(swissEntries)[0].deck.name} onReset={resetAll} />
+          )}
+        </div>
+      )}
+
       {/* Empty state */}
       {((isElim && rounds.length === 0 && phase === "setup") ||
-        (isWC   && wcPhase === "setup")) && (
+        (isWC   && wcPhase === "setup") ||
+        (isSwiss && swissPhase === "setup")) && (
         <div className="text-center py-16 text-gray-600">
           {isWC
             ? "Select 8 decks above and press Run World Cup."
+            : isSwiss
+            ? `Select ${size} decks above and press Run Swiss.`
             : `Select ${size} decks above and press Run Tournament.`}
         </div>
       )}
