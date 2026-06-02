@@ -144,6 +144,11 @@ export function AskTheSorcerers() {
             )
           );
         }
+
+        // If the stream completed but produced no text, the model call failed silently
+        if (!accumulated.trim()) {
+          throw new Error("No response received. The AI service may be unavailable.");
+        }
       } catch (err: unknown) {
         if (err instanceof Error && err.name === "AbortError") return;
         const msg = err instanceof Error ? err.message : "Something went wrong.";
