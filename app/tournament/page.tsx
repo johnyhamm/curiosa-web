@@ -24,6 +24,10 @@ interface BracketMatch {
   winRateA: number;
   winRateB: number;
   winner: Deck | null;
+  /** Series wins for each deck (>1 when best-of-3/5) */
+  gamesA: number;
+  gamesB: number;
+  seriesLength: number; // 1, 3, or 5
 }
 
 interface BracketRound {
@@ -77,9 +81,18 @@ const LABELS: Record<4 | 8, string[]> = {
 // ─── Match card ───────────────────────────────────────────────────────────────
 
 function MatchCard({ match }: { match: BracketMatch }) {
-  const { deckA, deckB, status, winRateA, winRateB, winner } = match;
+  const { deckA, deckB, status, winRateA, winRateB, winner, gamesA, gamesB, seriesLength } = match;
   const aWon = winner?.id === deckA.id;
   const bWon = winner?.id === deckB.id;
+  const isSeries = seriesLength > 1;
+
+  function scoreLabel(deck: "A" | "B") {
+    if (status !== "done" && status !== "running") return "";
+    if (status === "running") return "…";
+    return isSeries
+      ? String(deck === "A" ? gamesA : gamesB)
+      : `${(deck === "A" ? winRateA : winRateB).toFixed(1)}%`;
+  }
 
   return (
     <div
@@ -93,6 +106,20 @@ function MatchCard({ match }: { match: BracketMatch }) {
           : "border-gray-800 bg-gray-900/40"
       }`}
     >
+      {/* Series badge */}
+      {isSeries && (
+        <div className="px-4 pt-2.5 pb-0 flex items-center gap-2">
+          <span className="text-[10px] font-bold uppercase tracking-widest text-gray-600">
+            Best of {seriesLength}
+          </span>
+          {status === "done" && (
+            <span className="text-[10px] text-gray-700">
+              — {gamesA}–{gamesB}
+            </span>
+          )}
+        </div>
+      )}
+
       {/* Deck A */}
       <div
         className={`flex items-center justify-between gap-3 px-4 py-3 ${
@@ -118,17 +145,11 @@ function MatchCard({ match }: { match: BracketMatch }) {
         <span
           className={`text-sm font-mono font-bold shrink-0 ${
             status === "done"
-              ? aWon
-                ? "text-amber-400"
-                : "text-gray-600"
+              ? aWon ? "text-amber-400" : "text-gray-600"
               : "text-gray-700"
           }`}
         >
-          {status === "done"
-            ? `${winRateA.toFixed(1)}%`
-            : status === "running"
-            ? "…"
-            : ""}
+          {scoreLabel("A")}
         </span>
       </div>
 
@@ -159,41 +180,30 @@ function MatchCard({ match }: { match: BracketMatch }) {
         <span
           className={`text-sm font-mono font-bold shrink-0 ${
             status === "done"
-              ? bWon
-                ? "text-amber-400"
-                : "text-gray-600"
+              ? bWon ? "text-amber-400" : "text-gray-600"
               : "text-gray-700"
           }`}
         >
-          {status === "done"
-            ? `${winRateB.toFixed(1)}%`
-            : status === "running"
-            ? "…"
-            : ""}
+          {scoreLabel("B")}
         </span>
       </div>
 
-      {/* Win-rate bar */}
+      {/* Bar — shows win rate for BO1, series split for BO3/5 */}
       {status === "done" && (
         <div className="px-4 pb-3 pt-1">
           <div className="flex h-1.5 rounded-full overflow-hidden bg-gray-950 gap-px">
-            {winRateA > 0 && (
-              <div
-                className="bg-amber-500 h-full transition-all duration-700 rounded-l-full"
-                style={{ width: `${winRateA}%` }}
-              />
-            )}
-            {winRateB > 0 && (
-              <div
-                className="bg-sky-500 h-full transition-all duration-700 rounded-r-full"
-                style={{ width: `${winRateB}%` }}
-              />
-            )}
+            <div
+              className="bg-amber-500 h-full transition-all duration-700 rounded-l-full"
+              style={{ width: `${isSeries ? (gamesA / (gamesA + gamesB)) * 100 : winRateA}%` }}
+            />
+            <div
+              className="bg-sky-500 h-full transition-all duration-700 rounded-r-full"
+              style={{ width: `${isSeries ? (gamesB / (gamesA + gamesB)) * 100 : winRateB}%` }}
+            />
           </div>
         </div>
       )}
 
-      {/* Running shimmer */}
       {status === "running" && (
         <div className="px-4 pb-3 pt-1">
           <div className="h-1.5 rounded-full bg-gray-800 overflow-hidden">
@@ -219,6 +229,7 @@ export default function TournamentPage() {
   const [slotNames, setSlotNames]       = useState<string[]>(Array(4).fill(""));
   const [slotOverrides, setSlotOverrides] = useState<(DeckOverride | null)[]>(Array(4).fill(null));
   const [iterations, setIterations] = useState(200);
+  const [qfGames, setQfGames] = useState<1 | 3 | 5>(3);
   const [phase, setPhase]     = useState<Phase>("setup");
   const [rounds, setRounds]   = useState<BracketRound[]>([]);
   const [champion, setChampion] = useState<Deck | null>(null);
@@ -285,6 +296,9 @@ export default function TournamentPage() {
     let pool = decks.filter(d => d.id.trim()).slice(0, size);
 
     for (let ri = 0; ri < labels.length; ri++) {
+      // Quarter-finals (first round of an 8-deck bracket) use the configured series length
+      const seriesLength = (size === 8 && ri === 0) ? qfGames : 1;
+
       // Build match stubs for this round
       const matches: BracketMatch[] = [];
       for (let i = 0; i < pool.length; i += 2) {
@@ -296,6 +310,9 @@ export default function TournamentPage() {
           winRateA: 0,
           winRateB: 0,
           winner: null,
+          gamesA: 0,
+          gamesB: 0,
+          seriesLength,
         });
       }
 
@@ -319,37 +336,54 @@ export default function TournamentPage() {
       await Promise.all(
         matches.map(async (match, mi) => {
           try {
-            const res = await fetch("/api/simulate", {
-              method: "POST",
-              headers: { "Content-Type": "application/json" },
-              body: JSON.stringify({
-                deckA: match.deckA.id,
-                deckB: match.deckB.id,
-                iterations,
-                ...(match.deckA.override ? { deckAOverride: match.deckA.override } : {}),
-                ...(match.deckB.override ? { deckBOverride: match.deckB.override } : {}),
-              }),
-            });
-            if (!res.ok) throw new Error(`HTTP ${res.status}`);
-            const data = (await res.json()) as {
-              winRateA: string; winRateB: string;
-              deckAName: string; deckBName: string;
-            };
+            const needed = Math.ceil(match.seriesLength / 2);
+            let gamesA = 0, gamesB = 0;
+            let lastWinA = 50, lastWinB = 50;
+            let resolvedA: Deck = { id: match.deckA.id, name: match.deckA.name, override: match.deckA.override };
+            let resolvedB: Deck = { id: match.deckB.id, name: match.deckB.name, override: match.deckB.override };
 
-            const winA = parseFloat(data.winRateA);
-            const winB = parseFloat(data.winRateB);
-            // Prefer the canonical name returned by the API; carry the override forward.
-            const resolvedA: Deck = {
-              id: match.deckA.id,
-              name: data.deckAName || match.deckA.name,
-              override: match.deckA.override,
-            };
-            const resolvedB: Deck = {
-              id: match.deckB.id,
-              name: data.deckBName || match.deckB.name,
-              override: match.deckB.override,
-            };
-            const winner = winA >= winB ? resolvedA : resolvedB;
+            // Play games until one deck clinches the series
+            while (gamesA < needed && gamesB < needed) {
+              const res = await fetch("/api/simulate", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                  deckA: match.deckA.id,
+                  deckB: match.deckB.id,
+                  iterations,
+                  ...(match.deckA.override ? { deckAOverride: match.deckA.override } : {}),
+                  ...(match.deckB.override ? { deckBOverride: match.deckB.override } : {}),
+                }),
+              });
+              if (!res.ok) throw new Error(`HTTP ${res.status}`);
+              const data = (await res.json()) as {
+                winRateA: string; winRateB: string;
+                deckAName: string; deckBName: string;
+              };
+
+              lastWinA = parseFloat(data.winRateA);
+              lastWinB = parseFloat(data.winRateB);
+              resolvedA = { id: match.deckA.id, name: data.deckAName || match.deckA.name, override: match.deckA.override };
+              resolvedB = { id: match.deckB.id, name: data.deckBName || match.deckB.name, override: match.deckB.override };
+
+              if (lastWinA >= lastWinB) gamesA++; else gamesB++;
+
+              // Update score mid-series so the card shows live progress
+              if (match.seriesLength > 1) {
+                setRounds(prev =>
+                  prev.map((round, rIdx) =>
+                    rIdx !== ri ? round : {
+                      ...round,
+                      matches: round.matches.map((m, mIdx) =>
+                        mIdx !== mi ? m : { ...m, gamesA, gamesB }
+                      ),
+                    }
+                  )
+                );
+              }
+            }
+
+            const winner = gamesA >= needed ? resolvedA : resolvedB;
             winners[mi] = winner;
 
             setRounds(prev =>
@@ -366,8 +400,10 @@ export default function TournamentPage() {
                               status: "done" as const,
                               deckA: resolvedA,
                               deckB: resolvedB,
-                              winRateA: winA,
-                              winRateB: winB,
+                              winRateA: lastWinA,
+                              winRateB: lastWinB,
+                              gamesA,
+                              gamesB,
                               winner,
                             }
                       ),
@@ -378,14 +414,12 @@ export default function TournamentPage() {
             winners[mi] = match.deckA; // advance deckA on error
             setRounds(prev =>
               prev.map((round, rIdx) =>
-                rIdx !== ri
-                  ? round
-                  : {
-                      ...round,
-                      matches: round.matches.map((m, mIdx) =>
-                        mIdx !== mi ? m : { ...m, status: "error" as const }
-                      ),
-                    }
+                rIdx !== ri ? round : {
+                  ...round,
+                  matches: round.matches.map((m, mIdx) =>
+                    mIdx !== mi ? m : { ...m, status: "error" as const, gamesA: 0, gamesB: 0 }
+                  ),
+                }
               )
             );
           }
@@ -502,6 +536,32 @@ export default function TournamentPage() {
             />
           ))}
         </div>
+
+        {/* QF format — only shown for 8-deck brackets */}
+        {size === 8 && (
+          <div className="flex items-center gap-3">
+            <span className="text-sm font-medium text-gray-300">Quarter-finals</span>
+            <div className="flex gap-1 bg-gray-800 border border-gray-700 rounded-lg p-1">
+              {([1, 3, 5] as const).map(n => (
+                <button
+                  key={n}
+                  type="button"
+                  onClick={() => setQfGames(n)}
+                  className={`px-3 py-1.5 rounded text-sm font-medium transition-colors ${
+                    qfGames === n
+                      ? "bg-amber-500 text-gray-950"
+                      : "text-gray-400 hover:text-white"
+                  }`}
+                >
+                  {n === 1 ? "BO1" : `BO${n}`}
+                </button>
+              ))}
+            </div>
+            <span className="text-xs text-gray-600">
+              {qfGames === 1 ? "single game" : `best of ${qfGames}`}
+            </span>
+          </div>
+        )}
 
         {/* Iterations slider */}
         <div className="flex flex-col gap-2">
