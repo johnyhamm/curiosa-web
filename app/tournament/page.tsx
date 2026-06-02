@@ -33,6 +33,40 @@ interface BracketRound {
 
 type Phase = "setup" | "running" | "done";
 
+// ─── Featured tournaments ─────────────────────────────────────────────────────
+
+interface FeaturedEntry {
+  place: number;
+  player: string;
+  deckName: string;
+  deckId: string;
+}
+
+interface FeaturedTournament {
+  title: string;
+  subtitle: string;
+  articleUrl: string;
+  entries: FeaturedEntry[];
+}
+
+const FEATURED_TOURNAMENTS: FeaturedTournament[] = [
+  {
+    title: "SCG CON Washington DC — Top 8",
+    subtitle: "Where Tables Connected Recap",
+    articleUrl: "https://sorcerytcg.com/news/where-tables-connected-scg-con-washington-dc-recap",
+    entries: [
+      { place: 1, player: "Gideon M",    deckName: "TerriblePracticePrecon (Necromancer)", deckId: "cmobu9jsm00f804l1i7xlnpl0" },
+      { place: 2, player: "Brian S",     deckName: "Heavier than a Duck (Persecutor)",     deckId: "cmm45q5mu00dh04l7mzhl477o" },
+      { place: 3, player: "Cameron P",   deckName: "Not Another Druid List (Druid)",        deckId: "cmppimy4s005804l1m8zu23qi"  },
+      { place: 4, player: "John T",      deckName: "W/A Necro Grand Contest DC (Necro)",    deckId: "cmptwc0wj000404jra5gajp9g"  },
+      { place: 5, player: "Mike H",      deckName: "FE Archimago (Archimago)",              deckId: "cmpulk97l000604lg2oeaaaap"  },
+      { place: 6, player: "Christian V", deckName: "Scgcon DC Imposter (Imposter)",         deckId: "cmpejfcey00ll04le33z2508i"  },
+      { place: 7, player: "Tyler M",     deckName: "Water Pathfinder (Pathfinder)",         deckId: "cmpuea7lu00j204l5bvepfisb"  },
+      { place: 8, player: "Tom H",       deckName: "Algor Necrobliss (Necromancer)",        deckId: "cmoz800uw00dc04l2j24vc0ro"  },
+    ],
+  },
+];
+
 // ─── Round labels ─────────────────────────────────────────────────────────────
 
 const LABELS: Record<4 | 8, string[]> = {
@@ -223,6 +257,15 @@ export default function TournamentPage() {
     reset();
   }
 
+  function loadFeatured(ft: FeaturedTournament) {
+    const n = ft.entries.length as 4 | 8;
+    setSize(n);
+    setSlotIds(ft.entries.map(e => e.deckId));
+    setSlotNames(ft.entries.map(e => `${e.player} – ${e.deckName}`));
+    setSlotOverrides(Array(n).fill(null));
+    reset();
+  }
+
   const decks: Deck[] = slotIds.map((id, i) => ({
     id,
     name: slotNames[i] || id,
@@ -365,6 +408,51 @@ export default function TournamentPage() {
         Single-elimination tournament. Every matchup runs a full Monte Carlo simulation — the
         deck with the higher win rate advances.
       </p>
+
+      {/* ── Featured tournaments ── */}
+      {FEATURED_TOURNAMENTS.map((ft) => (
+        <div key={ft.title} className="bg-gray-900 border border-amber-700/30 rounded-xl p-5 mb-6">
+          <div className="flex flex-col sm:flex-row sm:items-start gap-4">
+            {/* Info */}
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2 mb-1">
+                <span className="text-xs font-bold uppercase tracking-widest text-amber-500">Featured</span>
+                <span className="text-xs text-gray-600">·</span>
+                <a
+                  href={ft.articleUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-xs text-gray-500 hover:text-amber-400 transition-colors"
+                >
+                  {ft.subtitle} ↗
+                </a>
+              </div>
+              <h2 className="text-base font-bold text-white mb-3" style={{ fontFamily: "var(--font-cinzel)" }}>
+                {ft.title}
+              </h2>
+              {/* Deck list */}
+              <div className="grid sm:grid-cols-2 gap-x-6 gap-y-1">
+                {ft.entries.map((e) => (
+                  <div key={e.deckId} className="flex items-baseline gap-2 text-sm">
+                    <span className="text-gray-600 font-mono w-4 shrink-0 text-right">{e.place}.</span>
+                    <span className="text-gray-400 shrink-0">{e.player}</span>
+                    <span className="text-gray-600 truncate text-xs">{e.deckName}</span>
+                  </div>
+                ))}
+              </div>
+            </div>
+            {/* CTA */}
+            <button
+              type="button"
+              onClick={() => loadFeatured(ft)}
+              className="shrink-0 self-start sm:self-center bg-amber-500 hover:bg-amber-400
+                text-gray-950 font-bold px-5 py-2.5 rounded-lg transition-colors text-sm whitespace-nowrap"
+            >
+              Load Top 8 →
+            </button>
+          </div>
+        </div>
+      ))}
 
       {/* ── Setup panel ── */}
       <div className="bg-gray-900 border border-gray-800 rounded-xl p-5 mb-8 flex flex-col gap-5">
