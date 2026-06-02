@@ -49,19 +49,24 @@ async function findRelevantChunks(query: string, k = 6): Promise<RagChunk[]> {
   const chunks = getChunks();
   if (chunks.length === 0) return [];
 
-  const oai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
-  const res = await oai.embeddings.create({
-    model: "text-embedding-3-small",
-    input: query,
-    dimensions: 256,
-  });
-  const queryEmb = res.data[0].embedding;
+  try {
+    const oai = new OpenAI({ apiKey: process.env.OPENAI_API_KEY! });
+    const res = await oai.embeddings.create({
+      model: "text-embedding-3-small",
+      input: query,
+      dimensions: 256,
+    });
+    const queryEmb = res.data[0].embedding;
 
-  const scored = chunks
-    .map((c) => ({ chunk: c, score: cosineSimilarity(queryEmb, c.embedding) }))
-    .sort((a, b) => b.score - a.score);
+    const scored = chunks
+      .map((c) => ({ chunk: c, score: cosineSimilarity(queryEmb, c.embedding) }))
+      .sort((a, b) => b.score - a.score);
 
-  return scored.slice(0, k).map((s) => s.chunk);
+    return scored.slice(0, k).map((s) => s.chunk);
+  } catch {
+    // Embeddings unavailable — answer without RAG context
+    return [];
+  }
 }
 
 // ── API route ─────────────────────────────────────────────────────────────────
@@ -74,25 +79,26 @@ export async function POST(req: Request) {
     );
   }
 
-  const { messages } = await req.json();
-  if (!Array.isArray(messages) || messages.length === 0) {
-    return new Response(JSON.stringify({ error: "No messages provided." }), {
-      status: 400,
-      headers: { "Content-Type": "application/json" },
-    });
-  }
+  try {
+    const { messages } = await req.json();
+    if (!Array.isArray(messages) || messages.length === 0) {
+      return new Response(JSON.stringify({ error: "No messages provided." }), {
+        status: 400,
+        headers: { "Content-Type": "application/json" },
+      });
+    }
 
-  // Build RAG context from the latest user message
-  const lastUserMsg =
-    [...messages].reverse().find((m: { role: string }) => m.role === "user")?.content ?? "";
+    // Build RAG context from the latest user message
+    const lastUserMsg =
+      [...messages].reverse().find((m: { role: string }) => m.role === "user")?.content ?? "";
 
-  const relevant = await findRelevantChunks(lastUserMsg);
-  const context =
-    relevant.length > 0
-      ? relevant.map((c) => `[${c.title}]\n${c.text}`).join("\n\n---\n\n")
-      : "No specific context found — answer from general knowledge of Sorcery: Contested Realm.";
+    const relevant = await findRelevantChunks(lastUserMsg);
+    const context =
+      relevant.length > 0
+        ? relevant.map((c) => `[${c.title}]\n${c.text}`).join("\n\n---\n\n")
+        : "No specific context found — answer from general knowledge of Sorcery: Contested Realm.";
 
-  const systemPrompt = `You are "Ask the Sorcerers" — a wise and precise rules expert for the trading card game Sorcery: Contested Realm.
+    const systemPrompt = `You are "Ask the Sorcerers" — a wise and precise rules expert for the trading card game Sorcery: Contested Realm.
 You have deep knowledge of the official rulebook, the FAQ, and the Codex of game terms.
 
 Answer questions about rules, card interactions, mechanics, and gameplay clearly and concisely.
@@ -103,36 +109,44 @@ Keep responses focused — players want quick, accurate answers.
 Relevant context from official sources:
 ${context}`;
 
-  const result = await streamText({
-    model: openai("gpt-4o-mini"),
-    system: systemPrompt,
-    messages,
-    maxOutputTokens: 600,
-    tools: {
-      lookupCard: tool({
-        description:
-          "Look up a specific Sorcery: Contested Realm card by name to get its full stats, cost, element, abilities, and rules text.",
-        inputSchema: z.object({
-          name: z.string().describe("The card name to look up (exact or approximate)"),
+    const result = await streamText({
+      model: openai("gpt-4o-mini"),
+      system: systemPrompt,
+      messages,
+      maxOutputTokens: 600,
+      tools: {
+        lookupCard: tool({
+          description:
+            "Look up a specific Sorcery: Contested Realm card by name to get its full stats, cost, element, abilities, and rules text.",
+          inputSchema: z.object({
+            name: z.string().describe("The card name to look up (exact or approximate)"),
+          }),
+          execute: async ({ name }: { name: string }) => {
+            try {
+              const cards = await loadCards();
+              const q = normalise(name);
+              const card =
+                cards.find((c) => normalise(c.name) === q) ??
+                cards.find((c) => normalise(c.name).includes(q)) ??
+                cards.find((c) => normalise(c.name).startsWith(q));
+              if (!card) return `No card found matching "${name}".`;
+              return formatCard(card, false);
+            } catch {
+              return `Could not look up card "${name}".`;
+            }
+          },
         }),
-        execute: async ({ name }: { name: string }) => {
-          try {
-            const cards = await loadCards();
-            const q = normalise(name);
-            const card =
-              cards.find((c) => normalise(c.name) === q) ??
-              cards.find((c) => normalise(c.name).includes(q)) ??
-              cards.find((c) => normalise(c.name).startsWith(q));
-            if (!card) return `No card found matching "${name}".`;
-            return formatCard(card, false);
-          } catch {
-            return `Could not look up card "${name}".`;
-          }
-        },
-      }),
-    },
-    stopWhen: stepCountIs(3),
-  });
+      },
+      stopWhen: stepCountIs(3),
+    });
 
-  return result.toTextStreamResponse();
+    return result.toTextStreamResponse();
+  } catch (err: unknown) {
+    const message = err instanceof Error ? err.message : "Unknown error";
+    console.error("[/api/ask] Unhandled error:", message);
+    return new Response(
+      JSON.stringify({ error: `AI service error: ${message}` }),
+      { status: 500, headers: { "Content-Type": "application/json" } }
+    );
+  }
 }
