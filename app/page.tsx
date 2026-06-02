@@ -247,6 +247,7 @@ export default function Home() {
             { label: "TCGplayer",          href: "https://partner.tcgplayer.com/c/7336784/1780961/21018?u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fsorcery-contested-realm%2Fproduct%3FproductLineName%3Dsorcery-contested-realm%26view%3Dgrid", icon: "🛒" },
             { label: "Team Covenant",      href: "https://teamcovenant.com",        icon: "⚔️" },
             { label: "Facebook Community", href: "https://www.facebook.com/share/g/1BsFJ16Re3/", icon: "👥" },
+            { label: "Eternal Durdles",    href: "https://eternaldurdles.com",                icon: "📝" },
             { label: "How to Play – Video Guide from Team Covenant", href: "https://www.youtube.com/watch?v=Ss-PtdOBHcQ", icon: "▶️" },
           ].map(({ label, href, icon }) => (
             <a
