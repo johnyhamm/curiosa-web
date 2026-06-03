@@ -20,6 +20,14 @@ interface AffiliateBanner {
 // ─── Add future banners here ───────────────────────────────────────────────
 const BANNERS: AffiliateBanner[] = [
   {
+    id: "tcgplayer-1",
+    href: "https://partner.tcgplayer.com/c/7336784/1780961/21018?u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fsorcery-contested-realm%2Fproduct%3FproductLineName%3Dsorcery-contested-realm%26view%3Dgrid",
+    imgSrc: "/728x90.jpeg",
+    alt: "TCGplayer – Shop Sorcery: Contested Realm singles and sealed product",
+    width: 728,
+    height: 90,
+  },
+  {
     id: "bcw-1",
     href: "https://www.bcwsupplies.com?acc=sorcerysim&b=1",
     imgSrc: "/sorcerysim_bcw_banner_fixed_600x100.png",
