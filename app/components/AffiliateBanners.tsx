@@ -1,9 +1,22 @@
+"use client";
+
+import { useState, useEffect } from "react";
+
+interface AffiliateBanner {
+  id: string;
+  href: string;
+  imgSrc: string;
+  alt: string;
+  width: number;
+  height: number;
+}
+
 // ─── Add future banners here ───────────────────────────────────────────────
-const BANNERS = [
+const BANNERS: AffiliateBanner[] = [
   {
     id: "tcgplayer-1",
     href: "https://partner.tcgplayer.com/c/7336784/1780961/21018?u=https%3A%2F%2Fwww.tcgplayer.com%2Fsearch%2Fsorcery-contested-realm%2Fproduct%3FproductLineName%3Dsorcery-contested-realm%26view%3Dgrid",
-    imgSrc: "/728x90.jpeg",
+    imgSrc: "/728x90.jpg",
     alt: "TCGplayer – Shop Sorcery: Contested Realm singles and sealed product",
     width: 728,
     height: 90,
@@ -20,6 +33,13 @@ const BANNERS = [
 // ──────────────────────────────────────────────────────────────────────────
 
 export function AffiliateBanners() {
+  const [banner, setBanner] = useState<AffiliateBanner>(BANNERS[0]);
+
+  // Pick a random banner on each page load / navigation
+  useEffect(() => {
+    setBanner(BANNERS[Math.floor(Math.random() * BANNERS.length)]);
+  }, []);
+
   return (
     <div className="mt-12">
       <div className="flex items-center gap-3 mb-4">
@@ -29,27 +49,22 @@ export function AffiliateBanners() {
         <div className="flex-1 border-t border-gray-800" />
       </div>
 
-      <div className="flex flex-col gap-3">
-        {BANNERS.map((banner) => (
-          <a
-            key={banner.id}
-            href={banner.href}
-            target="_blank"
-            rel="noopener noreferrer sponsored"
-            className="block rounded-lg overflow-hidden border border-gray-800
-              hover:border-gray-600 transition-colors self-start"
-          >
-            {/* eslint-disable-next-line @next/next/no-img-element */}
-            <img
-              src={banner.imgSrc}
-              alt={banner.alt}
-              width={banner.width}
-              height={banner.height}
-              loading="lazy"
-            />
-          </a>
-        ))}
-      </div>
+      <a
+        href={banner.href}
+        target="_blank"
+        rel="noopener noreferrer sponsored"
+        className="block rounded-lg overflow-hidden border border-gray-800
+          hover:border-gray-600 transition-colors self-start"
+      >
+        {/* eslint-disable-next-line @next/next/no-img-element */}
+        <img
+          src={banner.imgSrc}
+          alt={banner.alt}
+          width={banner.width}
+          height={banner.height}
+          loading="lazy"
+        />
+      </a>
     </div>
   );
 }
