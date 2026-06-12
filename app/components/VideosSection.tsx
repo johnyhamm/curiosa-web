@@ -1,7 +1,7 @@
 // Shows the latest video from each tracked Sorcery YouTube channel.
 // Reuses the RSS fetch/parse logic in lib/youtube.ts (also powers /api/youtube).
 
-import { fetchLatestVideos } from "@/lib/youtube";
+import { fetchRecentVideos } from "@/lib/youtube";
 
 function formatDate(iso: string | null): string {
   if (!iso) return "";
@@ -17,7 +17,7 @@ function formatDate(iso: string | null): string {
 }
 
 export async function VideosSection() {
-  const videos = (await fetchLatestVideos()).filter((v) => v.url && v.title);
+  const videos = (await fetchRecentVideos(2)).filter((v) => v.url && v.title);
   if (videos.length === 0) return null;
 
   return (
@@ -31,15 +31,15 @@ export async function VideosSection() {
         <span className="text-xs text-gray-600 shrink-0">YouTube ↗</span>
       </div>
 
-      {/* Video grid */}
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+      {/* Video grid — smaller tiles, more per row */}
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3">
         {videos.map((v) => (
           <a
-            key={v.handle}
+            key={v.videoId ?? v.handle}
             href={v.url!}
             target="_blank"
             rel="noopener noreferrer"
-            className="group flex flex-col bg-gray-900 border border-gray-800 rounded-xl
+            className="group flex flex-col bg-gray-900 border border-gray-800 rounded-lg
               overflow-hidden hover:border-gray-700 transition-colors"
           >
             {/* Thumbnail with play overlay */}
@@ -54,9 +54,9 @@ export async function VideosSection() {
                 />
               ) : null}
               <div className="absolute inset-0 flex items-center justify-center">
-                <div className="w-12 h-12 rounded-full bg-black/60 flex items-center justify-center
+                <div className="w-9 h-9 rounded-full bg-black/60 flex items-center justify-center
                   group-hover:bg-red-600/90 transition-colors">
-                  <svg viewBox="0 0 24 24" className="w-5 h-5 text-white" fill="currentColor">
+                  <svg viewBox="0 0 24 24" className="w-4 h-4 text-white" fill="currentColor">
                     <path d="M8 5v14l11-7z" />
                   </svg>
                 </div>
@@ -64,14 +64,14 @@ export async function VideosSection() {
             </div>
 
             {/* Text */}
-            <div className="flex flex-col gap-1.5 p-4 flex-1">
-              <p className="text-xs font-semibold text-amber-500">{v.channelName}</p>
-              <h3 className="text-sm font-semibold text-white leading-snug line-clamp-2
+            <div className="flex flex-col gap-1 p-2.5 flex-1">
+              <p className="text-[11px] font-semibold text-amber-500 truncate">{v.channelName}</p>
+              <h3 className="text-xs font-semibold text-white leading-snug line-clamp-2
                 group-hover:text-amber-400 transition-colors">
                 {v.title}
               </h3>
               {v.published && (
-                <p className="text-xs text-gray-600 mt-0.5">{formatDate(v.published)}</p>
+                <p className="text-[10px] text-gray-600 mt-0.5">{formatDate(v.published)}</p>
               )}
             </div>
           </a>

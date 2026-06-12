@@ -41,51 +41,59 @@ function firstMatch(text: string, re: RegExp): string | null {
   return m ? m[1] : null;
 }
 
-async function fetchChannel(def: ChannelDef): Promise<ChannelVideo> {
+/** Fetch up to `limit` most-recent videos for a single channel. */
+async function fetchChannelVideos(def: ChannelDef, limit: number): Promise<ChannelVideo[]> {
   const channelUrl = `https://www.youtube.com/@${def.handle}`;
-  const base: ChannelVideo = {
-    channelName: def.handle,
-    handle: def.handle,
-    channelUrl,
-    videoId: null, title: null, url: null, published: null, thumbnail: null,
-  };
-
   try {
     const res = await fetch(
       `https://www.youtube.com/feeds/videos.xml?channel_id=${def.channelId}`,
       { next: { revalidate: 3600 } } // 1 hour
     );
-    if (!res.ok) return base;
+    if (!res.ok) return [];
     const xml = await res.text();
 
     // Channel display name is the first <title> before the first <entry>.
     const head = xml.split("<entry>")[0];
     const channelName = decodeEntities(firstMatch(head, /<title>([\s\S]*?)<\/title>/) ?? def.handle);
 
-    const entry = xml.match(/<entry>([\s\S]*?)<\/entry>/);
-    if (!entry) return { ...base, channelName };
-    const e = entry[1];
-
-    const videoId = firstMatch(e, /<yt:videoId>(.*?)<\/yt:videoId>/);
-    const title = decodeEntities(firstMatch(e, /<title>([\s\S]*?)<\/title>/) ?? "");
-    const published = firstMatch(e, /<published>(.*?)<\/published>/);
-
-    return {
-      channelName,
-      handle: def.handle,
-      channelUrl,
-      videoId,
-      title: title || null,
-      url: videoId ? `https://www.youtube.com/watch?v=${videoId}` : null,
-      published,
-      thumbnail: videoId ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` : null,
-    };
+    const entries = xml.match(/<entry>[\s\S]*?<\/entry>/g) ?? [];
+    return entries.slice(0, limit).map((e) => {
+      const videoId = firstMatch(e, /<yt:videoId>(.*?)<\/yt:videoId>/);
+      const title = decodeEntities(firstMatch(e, /<title>([\s\S]*?)<\/title>/) ?? "");
+      const published = firstMatch(e, /<published>(.*?)<\/published>/);
+      return {
+        channelName,
+        handle: def.handle,
+        channelUrl,
+        videoId,
+        title: title || null,
+        url: videoId ? `https://www.youtube.com/watch?v=${videoId}` : null,
+        published,
+        thumbnail: videoId ? `https://i.ytimg.com/vi/${videoId}/mqdefault.jpg` : null,
+      };
+    });
   } catch {
-    return base;
+    return [];
   }
 }
 
-/** Fetch the latest video for every configured channel (in parallel). */
+/**
+ * Fetch the single latest video for every configured channel (in parallel).
+ * Always returns one entry per channel (null fields if none found) — this is
+ * the shape /api/youtube and the mobile app consume.
+ */
 export async function fetchLatestVideos(): Promise<ChannelVideo[]> {
-  return Promise.all(CHANNELS.map(fetchChannel));
+  const perChannel = await Promise.all(CHANNELS.map((c) => fetchChannelVideos(c, 1)));
+  return CHANNELS.map((c, i) => perChannel[i][0] ?? {
+    channelName: c.handle,
+    handle: c.handle,
+    channelUrl: `https://www.youtube.com/@${c.handle}`,
+    videoId: null, title: null, url: null, published: null, thumbnail: null,
+  });
+}
+
+/** Fetch the `perChannel` most-recent videos for every channel, flattened. */
+export async function fetchRecentVideos(perChannel = 2): Promise<ChannelVideo[]> {
+  const results = await Promise.all(CHANNELS.map((c) => fetchChannelVideos(c, perChannel)));
+  return results.flat();
 }
