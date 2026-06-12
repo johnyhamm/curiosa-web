@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { CardOfTheDay } from "@/app/components/CardOfTheDay";
 import { CodexTipOfTheDay } from "@/app/components/CodexTipOfTheDay";
 import { NewsSection } from "@/app/components/NewsSection";
+import { VideosSection } from "@/app/components/VideosSection";
 import { HomeSearch } from "@/app/components/HomeSearch";
 
 // Regenerate at most every 60 s so the daily picks flip within a minute
@@ -228,6 +229,11 @@ export default function Home() {
       {/* News */}
       <Suspense fallback={null}>
         <NewsSection />
+      </Suspense>
+
+      {/* Latest YouTube videos */}
+      <Suspense fallback={null}>
+        <VideosSection />
       </Suspense>
 
       {/* Community & Resources */}
