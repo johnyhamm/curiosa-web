@@ -188,3 +188,56 @@ export async function toggleDeckLike(
   const count = (await redis.scard(key)) ?? 0;
   return { liked: !alreadyLiked, count };
 }
+
+// ─── Ask the Sorcerers — question logging ──────────────────────────────────────
+
+export interface AskLogRecord {
+  /** The user's question (truncated). */
+  q: string;
+  /** Timestamp (ms since epoch). */
+  at: number;
+  /** Titles of the RAG chunks retrieved for this question. */
+  chunks: string[];
+}
+
+const ASK_LOG_KEY = "askLog";
+const ASK_LOG_MAX = 1000; // keep the most recent N questions
+
+/** Record a question (fire-and-forget friendly). Non-fatal on failure. */
+export async function logAskQuestion(entry: { q: string; chunks: string[] }): Promise<void> {
+  if (!redis) return;
+  const trimmed = entry.q.trim();
+  if (!trimmed) return;
+  const record: AskLogRecord = {
+    q: trimmed.slice(0, 500),
+    at: Date.now(),
+    chunks: entry.chunks.slice(0, 6),
+  };
+  try {
+    await redis.lpush(ASK_LOG_KEY, JSON.stringify(record));
+    await redis.ltrim(ASK_LOG_KEY, 0, ASK_LOG_MAX - 1);
+  } catch {
+    // Logging must never break the chat response.
+  }
+}
+
+/** Return the most recent questions, newest first. */
+export async function getRecentAskQuestions(limit = 100): Promise<AskLogRecord[]> {
+  if (!redis) return [];
+  const raw = await redis.lrange(ASK_LOG_KEY, 0, limit - 1);
+  return (raw as (string | AskLogRecord)[])
+    .map((r) => {
+      try {
+        return typeof r === "string" ? (JSON.parse(r) as AskLogRecord) : r;
+      } catch {
+        return null;
+      }
+    })
+    .filter(Boolean) as AskLogRecord[];
+}
+
+/** Total number of questions logged (capped at ASK_LOG_MAX). */
+export async function getAskQuestionCount(): Promise<number> {
+  if (!redis) return 0;
+  return (await redis.llen(ASK_LOG_KEY)) ?? 0;
+}

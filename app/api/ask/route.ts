@@ -5,6 +5,7 @@ import OpenAI from "openai";
 import { readFileSync, existsSync } from "fs";
 import { join } from "path";
 import { loadCards, normalise, formatCard } from "@/lib/cards";
+import { logAskQuestion } from "@/lib/redis";
 
 export const runtime = "nodejs";
 export const maxDuration = 30;
@@ -93,6 +94,12 @@ export async function POST(req: Request) {
       [...messages].reverse().find((m: { role: string }) => m.role === "user")?.content ?? "";
 
     const relevant = await findRelevantChunks(lastUserMsg);
+
+    // Lightweight question logging — captures the query + which knowledge
+    // chunks it retrieved, so we can spot gaps. Awaited (a single fast Redis
+    // write) to guarantee it records before the serverless function returns.
+    await logAskQuestion({ q: lastUserMsg, chunks: relevant.map((c) => c.title) });
+
     const context =
       relevant.length > 0
         ? relevant.map((c) => `[${c.title}]\n${c.text}`).join("\n\n---\n\n")

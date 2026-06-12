@@ -1,6 +1,10 @@
 import { auth, currentUser } from "@clerk/nextjs/server";
 import { redirect } from "next/navigation";
-import { getSimStats } from "@/lib/redis";
+import {
+  getSimStats,
+  getRecentAskQuestions,
+  getAskQuestionCount,
+} from "@/lib/redis";
 
 const ADMIN_EMAIL = "johnyhamm@gmail.com";
 
@@ -13,7 +17,11 @@ export default async function AdminPage() {
   const email = user?.emailAddresses?.[0]?.emailAddress ?? "";
   if (email !== ADMIN_EMAIL) redirect("/");
 
-  const stats = await getSimStats();
+  const [stats, questions, questionCount] = await Promise.all([
+    getSimStats(),
+    getRecentAskQuestions(75),
+    getAskQuestionCount(),
+  ]);
 
   return (
     <div className="max-w-3xl mx-auto px-4 sm:px-6 py-16">
@@ -59,6 +67,59 @@ export default async function AdminPage() {
             );
           })}
         </div>
+      </div>
+
+      {/* Ask the Sorcerers — recent questions */}
+      <div className="mt-10 bg-gray-900 border border-gray-800 rounded-2xl p-6">
+        <div className="flex items-center justify-between mb-4">
+          <h2 className="text-sm font-semibold text-gray-400 uppercase tracking-wider">
+            Ask the Sorcerers — recent questions
+          </h2>
+          <span className="text-xs text-gray-600">
+            {questionCount.toLocaleString()} logged
+          </span>
+        </div>
+
+        {questions.length === 0 ? (
+          <p className="text-sm text-gray-600">No questions logged yet.</p>
+        ) : (
+          <div className="divide-y divide-gray-800">
+            {questions.map((q, i) => {
+              const noContext = q.chunks.length === 0;
+              const when = new Date(q.at).toLocaleString("en-US", {
+                month: "short",
+                day: "numeric",
+                hour: "numeric",
+                minute: "2-digit",
+              });
+              return (
+                <div key={`${q.at}-${i}`} className="py-3 flex flex-col gap-1.5">
+                  <div className="flex items-start gap-3">
+                    <p className="flex-1 text-sm text-gray-200 leading-snug">{q.q}</p>
+                    <span className="text-[11px] text-gray-600 shrink-0 mt-0.5">{when}</span>
+                  </div>
+                  {noContext ? (
+                    <span className="inline-flex items-center gap-1 self-start text-[11px] font-medium
+                      text-amber-500 bg-amber-950/40 border border-amber-800/40 rounded-full px-2 py-0.5">
+                      ⚠ no context matched
+                    </span>
+                  ) : (
+                    <div className="flex flex-wrap gap-1.5">
+                      {q.chunks.map((c, j) => (
+                        <span
+                          key={j}
+                          className="text-[11px] text-gray-400 bg-gray-800 rounded-full px-2 py-0.5"
+                        >
+                          {c}
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        )}
       </div>
     </div>
   );
