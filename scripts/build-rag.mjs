@@ -4,8 +4,8 @@
  *
  * Reads three sources:
  *   1. lib/data/rulebook.txt  – extracted from the official PDF
- *   2. curiosa.io/faqs        – live page, parsed from __NEXT_DATA__
- *   3. lib/data/codex.csv     – existing codex entries
+ *   2. lib/data/faq.csv       – FAQ export (card name, question, answer)
+ *   3. lib/data/codex.csv     – codex entries (title, content, subcodexes)
  *
  * Chunks and embeds each source with OpenAI text-embedding-3-small (256 dims),
  * then writes lib/data/rag-chunks.json.
@@ -39,15 +39,6 @@ const BATCH_SIZE = 100;
 
 function cleanText(s) {
   return s.replace(/\s+/g, " ").replace(/- \d+ -/g, "").trim();
-}
-
-/** Extract plain text from a Sanity portable-text block array. */
-function blockText(blocks) {
-  if (!Array.isArray(blocks)) return "";
-  return blocks
-    .flatMap((b) => (b.children ?? []).map((c) => c.text ?? ""))
-    .join(" ")
-    .trim();
 }
 
 // ── Source 1: Rulebook ────────────────────────────────────────────────────────
@@ -114,46 +105,38 @@ function loadRulebookChunks() {
   return merged;
 }
 
-// ── Source 2: FAQ from curiosa.io ────────────────────────────────────────────
+// ── Source 2: FAQ from local CSV ──────────────────────────────────────────────
+// Reads lib/data/faq.csv (columns: "card name", question, answer), exported
+// from curiosa.io. Grouped by card name, chunked into groups of 8 Q&As.
 
-async function loadFaqChunks() {
-  console.log("  Fetching FAQ from curiosa.io/faqs ...");
-  const res = await fetch("https://curiosa.io/faqs", {
-    headers: { "User-Agent": "Mozilla/5.0 (compatible; SorcerySim/1.0)" },
+function loadFaqChunks() {
+  const raw = readFileSync(join(ROOT, "lib/data/faq.csv"), "utf8");
+  const rows = parse(raw, {
+    columns: true,
+    skip_empty_lines: true,
+    relax_quotes: true,
   });
-  if (!res.ok) throw new Error(`FAQ fetch failed: HTTP ${res.status}`);
-
-  const html = await res.text();
-  const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
-  if (!m) throw new Error("Could not find __NEXT_DATA__ in curiosa.io/faqs");
-
-  const data = JSON.parse(m[1]);
-  const faqs = data.props.pageProps.faqs ?? [];
-  console.log(`  Got ${faqs.length} raw FAQ entries`);
 
   // Group by card name
   const byCard = new Map();
-  for (const faq of faqs) {
-    const question = blockText(faq.question);
-    const answer = blockText(faq.answer);
-    if (!question || !answer) continue;
-    const qa = `Q: ${question}\nA: ${answer}`;
+  for (const row of rows) {
+    const cardName = (row["card name"] ?? "").trim();
+    const question = (row.question ?? "").trim();
+    const answer = (row.answer ?? "").trim();
+    if (!cardName || !question || !answer) continue;
 
-    for (const name of faq.cardNames ?? []) {
-      if (!byCard.has(name)) byCard.set(name, []);
-      byCard.get(name).push(qa);
-    }
+    if (!byCard.has(cardName)) byCard.set(cardName, []);
+    byCard.get(cardName).push(`Q: ${question}\nA: ${answer}`);
   }
 
   const chunks = [];
   for (const [cardName, qas] of byCard) {
     // If a card has many Q&As, split into sub-chunks of max 8 each
     for (let i = 0; i < qas.length; i += 8) {
-      const slice = qas.slice(i, i + 8);
       chunks.push({
         source: "faq",
         title: `FAQ: ${cardName}`,
-        text: slice.join("\n\n"),
+        text: qas.slice(i, i + 8).join("\n\n"),
       });
     }
   }
@@ -219,7 +202,7 @@ async function main() {
   console.log(`  ${rulebook.length} chunks`);
 
   console.log("Loading FAQ...");
-  const faq = await loadFaqChunks();
+  const faq = loadFaqChunks();
   console.log(`  ${faq.length} chunks`);
 
   console.log("Loading codex...");
