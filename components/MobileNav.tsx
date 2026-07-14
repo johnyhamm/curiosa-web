@@ -20,23 +20,13 @@ const NAV_LINKS = [
 ];
 
 function MobileAuthSection({ onClose }: { onClose: () => void }) {
-  const { isSignedIn, isLoaded, has } = useAuth();
-  const isSubscriber = has?.({ plan: "user:monthly" }) ?? false;
+  const { isSignedIn, isLoaded } = useAuth();
 
   if (!isLoaded) return null;
 
   if (isSignedIn) {
     return (
       <div className="flex flex-col gap-1">
-        {!isSubscriber && (
-          <Link
-            href="/pricing"
-            onClick={onClose}
-            className="px-3 py-3 text-sm font-semibold text-amber-400 hover:bg-gray-800 rounded-md transition-colors"
-          >
-            ✦ Subscribe — remove ads
-          </Link>
-        )}
         <Link
           href="/profile"
           onClick={onClose}
