@@ -1,0 +1,53 @@
+name: Refresh RAG index
+
+# Rebuilds the "Ask the Sorcerers" knowledge base every week.
+# Fetches the FAQ and Codex live from curiosa.io, re-embeds all sources
+# (rulebook + FAQ + codex) with OpenAI, and commits lib/data/rag-chunks.json
+# if it changed — which triggers a Vercel deploy. The rulebook is updated
+# by hand (from its PDF); only FAQ + Codex refresh automatically here.
+#
+# Setup (one-time):
+#   In GitHub → repo → Settings → Secrets and variables → Actions,
+#   add a secret named OPENAI_API_KEY with a working OpenAI key.
+#
+# The build script aborts (fails this job, commits nothing) if the FAQ or
+# Codex fetch returns suspiciously little data, so a curiosa.io change can
+# never overwrite the good index with garbage.
+
+on:
+  schedule:
+    - cron: "0 9 * * 1"   # Every Monday at 09:00 UTC
+  workflow_dispatch:        # Also allows a manual trigger from the Actions tab
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write        # needed to push the updated index
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: "npm"
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Rebuild RAG index
+        env:
+          OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+        run: node scripts/build-rag.mjs
+
+      - name: Commit refreshed index if it changed
+        run: |
+          if git diff --quiet -- lib/data/rag-chunks.json; then
+            echo "No changes — index is already up to date."
+          else
+            git config user.name  "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add lib/data/rag-chunks.json
+            git commit -m "chore: weekly RAG index refresh from curiosa.io"
+            git push
+          fi

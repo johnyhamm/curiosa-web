@@ -3,14 +3,16 @@
  * Build the RAG index for "Ask the Sorcerers".
  *
  * Reads three sources:
- *   1. lib/data/rulebook.txt  – extracted from the official PDF
- *   2. lib/data/faq.csv       – FAQ export (card name, question, answer)
- *   3. lib/data/codex.csv     – codex entries (title, content, subcodexes)
+ *   1. lib/data/rulebook.txt  – extracted from the official PDF (manual)
+ *   2. curiosa.io/faqs        – fetched live from the web
+ *   3. curiosa.io/codex       – fetched live from the web
  *
  * Chunks and embeds each source with OpenAI text-embedding-3-small (256 dims),
- * then writes lib/data/rag-chunks.json.
+ * then writes lib/data/rag-chunks.json. The FAQ + Codex fetches are refreshed
+ * automatically by the weekly GitHub Action (.github/workflows/refresh-rag.yml);
+ * the rulebook is updated by hand when a new PDF is published.
  *
- * Run manually when content changes:
+ * Run manually:
  *   OPENAI_API_KEY=sk-... node scripts/build-rag.mjs
  */
 
@@ -18,7 +20,6 @@ import OpenAI from "openai";
 import { readFileSync, writeFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { parse } from "csv-parse/sync";
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const ROOT = join(__dirname, "..");
@@ -41,7 +42,32 @@ function cleanText(s) {
   return s.replace(/\s+/g, " ").replace(/- \d+ -/g, "").trim();
 }
 
-// ── Source 1: Rulebook ────────────────────────────────────────────────────────
+/** Extract plain text from a Sanity portable-text block array. */
+function blockText(blocks) {
+  if (!Array.isArray(blocks)) return "";
+  return blocks
+    .flatMap((b) => (b.children ?? []).map((c) => c.text ?? ""))
+    .join(" ")
+    .trim();
+}
+
+/** Fetch a curiosa.io page and return its parsed __NEXT_DATA__ JSON. */
+async function fetchNextData(url) {
+  const res = await fetch(url, {
+    headers: { "User-Agent": "Mozilla/5.0 (compatible; SorcerySim/1.0)" },
+  });
+  if (!res.ok) throw new Error(`Fetch failed: ${url} → HTTP ${res.status}`);
+  const html = await res.text();
+  const m = html.match(/<script id="__NEXT_DATA__"[^>]*>([\s\S]*?)<\/script>/);
+  if (!m) throw new Error(`No __NEXT_DATA__ found at ${url}`);
+  return JSON.parse(m[1]);
+}
+
+// Abort the whole build rather than overwrite good data with a bad fetch.
+const MIN_FAQ_CHUNKS = 100;
+const MIN_CODEX_CHUNKS = 100;
+
+// ── Source 1: Rulebook (local file — updated manually) ─────────────────────────
 
 function loadRulebookChunks() {
   const raw = readFileSync(join(ROOT, "lib/data/rulebook.txt"), "utf8");
@@ -105,28 +131,25 @@ function loadRulebookChunks() {
   return merged;
 }
 
-// ── Source 2: FAQ from local CSV ──────────────────────────────────────────────
-// Reads lib/data/faq.csv (columns: "card name", question, answer), exported
-// from curiosa.io. Grouped by card name, chunked into groups of 8 Q&As.
+// ── Source 2: FAQ from curiosa.io/faqs ────────────────────────────────────────
 
-function loadFaqChunks() {
-  const raw = readFileSync(join(ROOT, "lib/data/faq.csv"), "utf8");
-  const rows = parse(raw, {
-    columns: true,
-    skip_empty_lines: true,
-    relax_quotes: true,
-  });
+async function loadFaqChunks() {
+  console.log("  Fetching FAQ from curiosa.io/faqs ...");
+  const data = await fetchNextData("https://curiosa.io/faqs");
+  const faqs = data?.props?.pageProps?.faqs ?? [];
+  console.log(`  Got ${faqs.length} raw FAQ entries`);
 
-  // Group by card name
+  // Group Q&As by card name
   const byCard = new Map();
-  for (const row of rows) {
-    const cardName = (row["card name"] ?? "").trim();
-    const question = (row.question ?? "").trim();
-    const answer = (row.answer ?? "").trim();
-    if (!cardName || !question || !answer) continue;
-
-    if (!byCard.has(cardName)) byCard.set(cardName, []);
-    byCard.get(cardName).push(`Q: ${question}\nA: ${answer}`);
+  for (const faq of faqs) {
+    const question = blockText(faq.question);
+    const answer = blockText(faq.answer);
+    if (!question || !answer) continue;
+    const qa = `Q: ${question}\nA: ${answer}`;
+    for (const name of faq.cardNames ?? []) {
+      if (!byCard.has(name)) byCard.set(name, []);
+      byCard.get(name).push(qa);
+    }
   }
 
   const chunks = [];
@@ -141,26 +164,43 @@ function loadFaqChunks() {
     }
   }
 
+  if (chunks.length < MIN_FAQ_CHUNKS) {
+    throw new Error(
+      `FAQ produced only ${chunks.length} chunks (< ${MIN_FAQ_CHUNKS}). ` +
+      `curiosa.io/faqs may have changed — aborting so the index isn't overwritten.`
+    );
+  }
   return chunks;
 }
 
-// ── Source 3: Codex CSV ───────────────────────────────────────────────────────
+// ── Source 3: Codex from curiosa.io/codex ─────────────────────────────────────
+// Codex data is delivered via a dehydrated tRPC query ("cms","getAllCodexes").
 
-function loadCodexChunks() {
-  const raw = readFileSync(join(ROOT, "lib/data/codex.csv"), "utf8");
-  const rows = parse(raw, {
-    columns: true,
-    skip_empty_lines: true,
-    relax_quotes: true,
+async function loadCodexChunks() {
+  console.log("  Fetching Codex from curiosa.io/codex ...");
+  const data = await fetchNextData("https://curiosa.io/codex");
+  const queries = data?.props?.pageProps?.trpcState?.json?.queries ?? [];
+  const entries = queries.flatMap((q) => {
+    const key = JSON.stringify(q?.queryKey ?? "");
+    return key.includes("getAllCodexes") ? (q?.state?.data ?? []) : [];
   });
+  console.log(`  Got ${entries.length} raw codex entries`);
 
-  return rows
-    .filter((r) => r.title?.trim() && r.content?.trim().length > 80)
-    .map((r) => ({
-      source: "codex",
-      title: `Codex: ${r.title.trim()}`,
-      text: cleanText(r.content),
-    }));
+  const chunks = entries
+    .map((e) => ({
+      title: (e.title ?? "").trim(),
+      text: cleanText(blockText(e.content)),
+    }))
+    .filter((c) => c.title && c.text.length > 80)
+    .map((c) => ({ source: "codex", title: `Codex: ${c.title}`, text: c.text }));
+
+  if (chunks.length < MIN_CODEX_CHUNKS) {
+    throw new Error(
+      `Codex produced only ${chunks.length} chunks (< ${MIN_CODEX_CHUNKS}). ` +
+      `curiosa.io/codex may have changed — aborting so the index isn't overwritten.`
+    );
+  }
+  return chunks;
 }
 
 // ── Embedding ─────────────────────────────────────────────────────────────────
@@ -202,11 +242,11 @@ async function main() {
   console.log(`  ${rulebook.length} chunks`);
 
   console.log("Loading FAQ...");
-  const faq = loadFaqChunks();
+  const faq = await loadFaqChunks();
   console.log(`  ${faq.length} chunks`);
 
   console.log("Loading codex...");
-  const codex = loadCodexChunks();
+  const codex = await loadCodexChunks();
   console.log(`  ${codex.length} chunks`);
 
   const all = [...rulebook, ...faq, ...codex];
