@@ -3,7 +3,7 @@ import { getCodexTipOfTheDay, stripWikiLinks } from "@/lib/codex";
 const TRUNCATE_AT = 450;
 
 export async function CodexTipOfTheDay() {
-  const entry = getCodexTipOfTheDay();
+  const entry = await getCodexTipOfTheDay();
   if (!entry) return null;
 
   const cleanContent = stripWikiLinks(entry.content);
